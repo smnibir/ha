@@ -1,444 +1,346 @@
 <?php
 
-namespace HostawayWP\Sync;
+namespace HostawaySync\Sync;
 
-use HostawayWP\API\HostawayClient;
-use HostawayWP\Models\Property;
-use HostawayWP\Models\Rate;
-use HostawayWP\Models\Availability;
+use HostawaySync\Database\Database;
+use HostawaySync\API\HostawayClient;
 
 /**
- * Data synchronization system
+ * Data Synchronizer
  */
 class Synchronizer {
     
     /**
-     * API client
+     * Hostaway API client
      */
     private $api_client;
-    
-    /**
-     * Models
-     */
-    private $property_model;
-    private $rate_model;
-    private $availability_model;
     
     /**
      * Constructor
      */
     public function __construct() {
         $this->api_client = new HostawayClient();
-        $this->property_model = new Property();
-        $this->rate_model = new Rate();
-        $this->availability_model = new Availability();
-        
-        // Add custom cron intervals
-        add_filter('cron_schedules', [$this, 'addCustomCronIntervals']);
     }
     
     /**
-     * Add custom cron intervals
+     * Sync properties from Hostaway
      */
-    public function addCustomCronIntervals($schedules) {
-        $schedules['hostaway_10min'] = [
-            'interval' => 10 * MINUTE_IN_SECONDS,
-            'display' => __('Every 10 minutes', 'hostaway-wp'),
-        ];
-        
-        return $schedules;
-    }
-    
-    /**
-     * Sync all data
-     */
-    public function syncAll() {
-        $this->logSync('sync_all', 'started', 'Starting full synchronization');
+    public function sync_properties() {
+        $start_time = microtime(true);
+        $sync_id = Database::log_sync('properties', 'started', 'Starting property synchronization');
         
         try {
-            // Sync properties first
-            $properties_synced = $this->syncProperties();
+            // Check if sync is enabled
+            if (!get_option('hostaway_sync_auto_sync_enabled', true)) {
+                Database::log_sync('properties', 'skipped', 'Auto sync is disabled');
+                return;
+            }
             
-            // Sync rates for all properties
-            $rates_synced = $this->syncRates();
+            // Get all properties from Hostaway
+            $properties = $this->api_client->get_properties(1000);
             
-            // Sync availability for all properties
-            $availability_synced = $this->syncAvailability();
+            if (!isset($properties['result']) || !is_array($properties['result'])) {
+                throw new \Exception('Invalid properties response from API');
+            }
             
-            $this->logSync('sync_all', 'completed', sprintf(
-                'Sync completed: %d properties, %d rates, %d availability records',
-                $properties_synced,
-                $rates_synced,
-                $availability_synced
-            ));
-            
-            return [
-                'success' => true,
-                'properties' => $properties_synced,
-                'rates' => $rates_synced,
-                'availability' => $availability_synced,
-            ];
-            
-        } catch (Exception $e) {
-            $this->logSync('sync_all', 'error', 'Sync failed: ' . $e->getMessage());
-            
-            return [
-                'success' => false,
-                'error' => $e->getMessage(),
-            ];
-        }
-    }
-    
-    /**
-     * Sync properties
-     */
-    public function syncProperties() {
-        $this->logSync('properties', 'started', 'Starting properties sync');
-        
-        try {
             $synced_count = 0;
-            $page = 1;
-            $limit = 100;
+            $updated_count = 0;
+            $errors = array();
             
-            do {
-                $response = $this->api_client->getProperties($page, $limit);
-                
-                if (!$response || !isset($response['data']) || !is_array($response['data'])) {
-                    break;
-                }
-                
-                foreach ($response['data'] as $property_data) {
-                    try {
-                        $this->syncSingleProperty($property_data);
+            foreach ($properties['result'] as $property_data) {
+                try {
+                    $result = $this->sync_single_property($property_data);
+                    
+                    if ($result['action'] === 'created') {
                         $synced_count++;
-                    } catch (Exception $e) {
-                        $this->logSync('properties', 'error', 'Failed to sync property ' . $property_data['id'] . ': ' . $e->getMessage());
+                    } elseif ($result['action'] === 'updated') {
+                        $updated_count++;
                     }
+                    
+                } catch (\Exception $e) {
+                    $errors[] = "Property {$property_data['id']}: " . $e->getMessage();
                 }
-                
-                $page++;
-                
-                // Check if there are more pages
-                if (count($response['data']) < $limit) {
-                    break;
-                }
-                
-            } while (true);
+            }
             
-            $this->logSync('properties', 'completed', "Synced {$synced_count} properties");
+            // Sync rates and availability for all properties
+            $this->sync_rates_and_availability();
             
-            return $synced_count;
+            $execution_time = microtime(true) - $start_time;
+            $message = sprintf(
+                'Sync completed. Created: %d, Updated: %d, Errors: %d',
+                $synced_count,
+                $updated_count,
+                count($errors)
+            );
             
-        } catch (Exception $e) {
-            $this->logSync('properties', 'error', 'Properties sync failed: ' . $e->getMessage());
-            throw $e;
+            Database::log_sync('properties', 'completed', $message, array(
+                'synced_count' => $synced_count,
+                'updated_count' => $updated_count,
+                'errors' => $errors
+            ), $execution_time);
+            
+            // Update last sync time
+            update_option('hostaway_sync_last_sync', current_time('mysql'));
+            
+        } catch (\Exception $e) {
+            $execution_time = microtime(true) - $start_time;
+            Database::log_sync('properties', 'error', $e->getMessage(), null, $execution_time);
         }
     }
     
     /**
      * Sync single property
      */
-    private function syncSingleProperty($api_data) {
-        // Get detailed property information
-        $property_details = $this->api_client->getProperty($api_data['id']);
-        
-        if (!$property_details || !isset($property_details['data'])) {
-            throw new Exception('Failed to get property details');
-        }
-        
-        $property = $property_details['data'];
-        
-        // Get property images
-        $images = $this->api_client->getPropertyImages($property['id']);
-        $gallery_urls = [];
-        $thumbnail_url = '';
-        
-        if ($images && isset($images['data'])) {
-            foreach ($images['data'] as $image) {
-                if ($image['is_primary']) {
-                    $thumbnail_url = $image['url'];
-                }
-                $gallery_urls[] = $image['url'];
-            }
-        }
-        
-        // Get property amenities
-        $amenities = $this->api_client->getPropertyAmenities($property['id']);
-        $amenities_list = [];
-        
-        if ($amenities && isset($amenities['data'])) {
-            foreach ($amenities['data'] as $amenity) {
-                $amenities_list[] = $amenity['name'];
-            }
-        }
-        
-        // Prepare data for database
-        $property_data = [
-            'hostaway_id' => $property['id'],
-            'title' => $property['title'],
-            'slug' => $this->generateSlug($property['title'], $property['id']),
-            'type' => $property['type'] ?? 'Property',
-            'country' => $property['address']['country'] ?? '',
-            'city' => $property['address']['city'] ?? '',
-            'address' => $this->formatAddress($property['address']),
-            'latitude' => $property['coordinates']['latitude'] ?? null,
-            'longitude' => $property['coordinates']['longitude'] ?? null,
-            'rooms' => $property['bedrooms'] ?? 0,
-            'bathrooms' => $property['bathrooms'] ?? 0,
-            'guests' => $property['max_guests'] ?? 0,
-            'base_price' => $property['base_price'] ?? 0.00,
-            'thumbnail_url' => $thumbnail_url,
-            'gallery_json' => json_encode($gallery_urls),
-            'amenities_json' => json_encode($amenities_list),
-            'features_json' => json_encode($property['features'] ?? []),
-            'description' => $property['description'] ?? '',
-            'status' => $property['status'] === 'active' ? 'active' : 'inactive',
-        ];
-        
-        // Save to database
-        $property_id = $this->property_model->save($property_data);
-        
-        return $property_id;
-    }
-    
-    /**
-     * Sync rates
-     */
-    public function syncRates() {
-        $this->logSync('rates', 'started', 'Starting rates sync');
-        
-        try {
-            $synced_count = 0;
-            
-            // Get all properties
-            $properties = $this->property_model->getAll(1000, 0);
-            
-            foreach ($properties as $property) {
-                try {
-                    // Get rates for next 365 days
-                    $start_date = date('Y-m-d');
-                    $end_date = date('Y-m-d', strtotime('+365 days'));
-                    
-                    $rates_response = $this->api_client->getPropertyRates(
-                        $property['hostaway_id'],
-                        $start_date,
-                        $end_date
-                    );
-                    
-                    if ($rates_response && isset($rates_response['data'])) {
-                        $rates_data = [];
-                        
-                        foreach ($rates_response['data'] as $rate_data) {
-                            $rates_data[] = [
-                                'property_id' => $property['id'],
-                                'date' => $rate_data['date'],
-                                'price' => $rate_data['price'],
-                                'min_nights' => $rate_data['min_nights'] ?? 1,
-                                'max_guests' => $rate_data['max_guests'] ?? null,
-                                'currency' => $rate_data['currency'] ?? 'USD',
-                            ];
-                        }
-                        
-                        // Delete existing rates for this date range
-                        $this->rate_model->deleteByPropertyAndDateRange(
-                            $property['id'],
-                            $start_date,
-                            $end_date
-                        );
-                        
-                        // Save new rates
-                        $saved = $this->rate_model->saveMultiple($rates_data);
-                        $synced_count += $saved;
-                    }
-                    
-                } catch (Exception $e) {
-                    $this->logSync('rates', 'error', 'Failed to sync rates for property ' . $property['hostaway_id'] . ': ' . $e->getMessage());
-                }
-            }
-            
-            $this->logSync('rates', 'completed', "Synced {$synced_count} rate records");
-            
-            return $synced_count;
-            
-        } catch (Exception $e) {
-            $this->logSync('rates', 'error', 'Rates sync failed: ' . $e->getMessage());
-            throw $e;
-        }
-    }
-    
-    /**
-     * Sync availability
-     */
-    public function syncAvailability() {
-        $this->logSync('availability', 'started', 'Starting availability sync');
-        
-        try {
-            $synced_count = 0;
-            
-            // Get all properties
-            $properties = $this->property_model->getAll(1000, 0);
-            
-            foreach ($properties as $property) {
-                try {
-                    // Get availability for next 365 days
-                    $start_date = date('Y-m-d');
-                    $end_date = date('Y-m-d', strtotime('+365 days'));
-                    
-                    $availability_response = $this->api_client->getPropertyAvailability(
-                        $property['hostaway_id'],
-                        $start_date,
-                        $end_date
-                    );
-                    
-                    if ($availability_response && isset($availability_response['data'])) {
-                        $availability_data = [];
-                        
-                        foreach ($availability_response['data'] as $avail_data) {
-                            $availability_data[] = [
-                                'property_id' => $property['id'],
-                                'date' => $avail_data['date'],
-                                'is_booked' => $avail_data['is_booked'] ?? false,
-                                'is_available' => $avail_data['is_available'] ?? true,
-                            ];
-                        }
-                        
-                        // Delete existing availability for this date range
-                        $this->availability_model->deleteByPropertyAndDateRange(
-                            $property['id'],
-                            $start_date,
-                            $end_date
-                        );
-                        
-                        // Save new availability
-                        $saved = $this->availability_model->saveMultiple($availability_data);
-                        $synced_count += $saved;
-                    }
-                    
-                } catch (Exception $e) {
-                    $this->logSync('availability', 'error', 'Failed to sync availability for property ' . $property['hostaway_id'] . ': ' . $e->getMessage());
-                }
-            }
-            
-            $this->logSync('availability', 'completed', "Synced {$synced_count} availability records");
-            
-            return $synced_count;
-            
-        } catch (Exception $e) {
-            $this->logSync('availability', 'error', 'Availability sync failed: ' . $e->getMessage());
-            throw $e;
-        }
-    }
-    
-    /**
-     * Generate unique slug
-     */
-    private function generateSlug($title, $hostaway_id) {
-        $slug = sanitize_title($title);
-        
-        // Add hostaway ID to ensure uniqueness
-        $slug = $slug . '-' . $hostaway_id;
-        
-        return $slug;
-    }
-    
-    /**
-     * Format address
-     */
-    private function formatAddress($address) {
-        if (!is_array($address)) {
-            return '';
-        }
-        
-        $parts = array_filter([
-            $address['street'] ?? '',
-            $address['city'] ?? '',
-            $address['state'] ?? '',
-            $address['country'] ?? '',
-        ]);
-        
-        return implode(', ', $parts);
-    }
-    
-    /**
-     * Log sync activity
-     */
-    private function logSync($action, $status, $message) {
+    private function sync_single_property($property_data) {
         global $wpdb;
         
-        $table_name = $wpdb->prefix . 'hostaway_sync_log';
+        $table = Database::get_properties_table();
         
-        $wpdb->insert(
-            $table_name,
-            [
-                'action' => $action,
-                'status' => $status,
-                'message' => $message,
-                'created_at' => current_time('mysql'),
-            ],
-            ['%s', '%s', '%s', '%s']
+        // Check if property exists
+        $existing = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM $table WHERE hostaway_id = %d",
+                $property_data['id']
+            )
         );
         
-        // Keep only last 1000 log entries
-        $wpdb->query(
-            "DELETE FROM {$table_name} WHERE id NOT IN (
-                SELECT id FROM (
-                    SELECT id FROM {$table_name} ORDER BY created_at DESC LIMIT 1000
-                ) AS temp
-            )"
+        // Prepare property data
+        $property = array(
+            'hostaway_id' => $property_data['id'],
+            'name' => $property_data['name'] ?? '',
+            'description' => $property_data['description'] ?? '',
+            'location' => $property_data['location'] ?? '',
+            'latitude' => $property_data['latitude'] ?? null,
+            'longitude' => $property_data['longitude'] ?? null,
+            'address' => $property_data['address'] ?? '',
+            'city' => $property_data['city'] ?? '',
+            'state' => $property_data['state'] ?? '',
+            'country' => $property_data['country'] ?? '',
+            'postal_code' => $property_data['postalCode'] ?? '',
+            'property_type' => $property_data['propertyType'] ?? '',
+            'room_count' => $property_data['roomCount'] ?? 0,
+            'bathroom_count' => $property_data['bathroomCount'] ?? 0,
+            'guest_capacity' => $property_data['guestCount'] ?? 0,
+            'base_price' => $property_data['basePrice'] ?? 0,
+            'currency' => $property_data['currency'] ?? 'USD',
+            'amenities' => wp_json_encode($property_data['amenities'] ?? array()),
+            'images' => wp_json_encode($property_data['photos'] ?? array()),
+            'status' => $property_data['status'] === 'active' ? 'active' : 'inactive'
         );
+        
+        if ($existing) {
+            // Update existing property
+            $wpdb->update(
+                $table,
+                $property,
+                array('id' => $existing->id),
+                array('%d', '%s', '%s', '%s', '%f', '%f', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%f', '%s', '%s', '%s', '%s'),
+                array('%d')
+            );
+            
+            return array('action' => 'updated', 'property_id' => $existing->id);
+        } else {
+            // Create new property
+            $wpdb->insert(
+                $table,
+                $property,
+                array('%d', '%s', '%s', '%s', '%f', '%f', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%f', '%s', '%s', '%s', '%s')
+            );
+            
+            return array('action' => 'created', 'property_id' => $wpdb->insert_id);
+        }
+    }
+    
+    /**
+     * Sync rates and availability
+     */
+    private function sync_rates_and_availability() {
+        global $wpdb;
+        
+        $properties_table = Database::get_properties_table();
+        $rates_table = Database::get_rates_table();
+        $availability_table = Database::get_availability_table();
+        
+        // Get all active properties
+        $properties = $wpdb->get_results(
+            "SELECT id, hostaway_id FROM $properties_table WHERE status = 'active'"
+        );
+        
+        foreach ($properties as $property) {
+            try {
+                $this->sync_property_rates($property->id, $property->hostaway_id);
+                $this->sync_property_availability($property->id, $property->hostaway_id);
+            } catch (\Exception $e) {
+                Database::log_sync('rates_availability', 'error', "Property {$property->id}: " . $e->getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Sync property rates
+     */
+    private function sync_property_rates($property_id, $hostaway_id) {
+        global $wpdb;
+        
+        $rates_table = Database::get_rates_table();
+        
+        // Get rates for the next 365 days
+        $date_from = date('Y-m-d');
+        $date_to = date('Y-m-d', strtotime('+365 days'));
+        
+        $rates_data = $this->api_client->get_property_rates($hostaway_id, $date_from, $date_to);
+        
+        if (!isset($rates_data['result']) || !is_array($rates_data['result'])) {
+            return;
+        }
+        
+        // Clear existing rates for this property
+        $wpdb->delete($rates_table, array('property_id' => $property_id));
+        
+        // Insert new rates
+        foreach ($rates_data['result'] as $rate) {
+            $wpdb->insert(
+                $rates_table,
+                array(
+                    'property_id' => $property_id,
+                    'hostaway_rate_id' => $rate['id'] ?? 0,
+                    'date_from' => $rate['dateFrom'] ?? $date_from,
+                    'date_to' => $rate['dateTo'] ?? $date_to,
+                    'price' => $rate['price'] ?? 0,
+                    'minimum_nights' => $rate['minimumNights'] ?? 1
+                ),
+                array('%d', '%d', '%s', '%s', '%f', '%d')
+            );
+        }
+    }
+    
+    /**
+     * Sync property availability
+     */
+    private function sync_property_availability($property_id, $hostaway_id) {
+        global $wpdb;
+        
+        $availability_table = Database::get_availability_table();
+        
+        // Get availability for the next 365 days
+        $date_from = date('Y-m-d');
+        $date_to = date('Y-m-d', strtotime('+365 days'));
+        
+        $availability_data = $this->api_client->get_property_availability($hostaway_id, $date_from, $date_to);
+        
+        if (!isset($availability_data['result']) || !is_array($availability_data['result'])) {
+            return;
+        }
+        
+        // Clear existing availability for this property
+        $wpdb->delete($availability_table, array('property_id' => $property_id));
+        
+        // Insert new availability
+        foreach ($availability_data['result'] as $day) {
+            $wpdb->insert(
+                $availability_table,
+                array(
+                    'property_id' => $property_id,
+                    'date' => $day['date'],
+                    'available' => $day['available'] ? 1 : 0,
+                    'minimum_nights' => $day['minimumNights'] ?? 1,
+                    'checkin_allowed' => $day['checkinAllowed'] ? 1 : 0,
+                    'checkout_allowed' => $day['checkoutAllowed'] ? 1 : 0
+                ),
+                array('%d', '%s', '%d', '%d', '%d', '%d')
+            );
+        }
+    }
+    
+    /**
+     * Manual sync handler
+     */
+    public function manual_sync() {
+        check_ajax_referer('hostaway_manual_sync', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        // Run sync
+        $this->sync_properties();
+        
+        // Get recent logs
+        $logs = Database::get_recent_logs(10);
+        
+        wp_send_json_success(array(
+            'message' => __('Manual sync completed', 'hostaway-sync'),
+            'logs' => $logs
+        ));
     }
     
     /**
      * Get sync status
      */
-    public function getSyncStatus() {
+    public function get_sync_status() {
+        $last_sync = get_option('hostaway_sync_last_sync');
+        $logs = Database::get_recent_logs(5);
+        
+        return array(
+            'last_sync' => $last_sync,
+            'auto_sync_enabled' => get_option('hostaway_sync_auto_sync_enabled', true),
+            'recent_logs' => $logs
+        );
+    }
+    
+    /**
+     * Clear cache
+     */
+    public function clear_cache() {
         global $wpdb;
         
-        $table_name = $wpdb->prefix . 'hostaway_sync_log';
+        // Clear transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_hostaway_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_hostaway_%'");
         
-        // Get last sync for each action
-        $last_syncs = $wpdb->get_results(
-            "SELECT action, status, message, created_at 
-             FROM {$table_name} 
-             WHERE id IN (
-                 SELECT MAX(id) FROM {$table_name} GROUP BY action
-             ) 
-             ORDER BY created_at DESC",
-            ARRAY_A
+        // Clear object cache if available
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+        }
+        
+        Database::log_sync('cache', 'cleared', 'Cache cleared manually');
+    }
+    
+    /**
+     * Get property statistics
+     */
+    public function get_property_stats() {
+        global $wpdb;
+        
+        $properties_table = Database::get_properties_table();
+        $rates_table = Database::get_rates_table();
+        $availability_table = Database::get_availability_table();
+        
+        $stats = array();
+        
+        // Total properties
+        $stats['total_properties'] = $wpdb->get_var(
+            "SELECT COUNT(*) FROM $properties_table"
         );
         
-        return $last_syncs;
-    }
-    
-    /**
-     * Schedule sync jobs
-     */
-    public function scheduleSyncJobs() {
-        // Clear existing schedules
-        wp_clear_scheduled_hook('hostaway_wp_sync_properties');
-        wp_clear_scheduled_hook('hostaway_wp_sync_rates');
-        wp_clear_scheduled_hook('hostaway_wp_sync_availability');
+        // Active properties
+        $stats['active_properties'] = $wpdb->get_var(
+            "SELECT COUNT(*) FROM $properties_table WHERE status = 'active'"
+        );
         
-        // Schedule new jobs with 10-minute interval
-        if (!wp_next_scheduled('hostaway_wp_sync_properties')) {
-            wp_schedule_event(time(), 'hostaway_10min', 'hostaway_wp_sync_properties');
-        }
+        // Properties with rates
+        $stats['properties_with_rates'] = $wpdb->get_var(
+            "SELECT COUNT(DISTINCT property_id) FROM $rates_table"
+        );
         
-        if (!wp_next_scheduled('hostaway_wp_sync_rates')) {
-            wp_schedule_event(time(), 'hostaway_10min', 'hostaway_wp_sync_rates');
-        }
+        // Properties with availability
+        $stats['properties_with_availability'] = $wpdb->get_var(
+            "SELECT COUNT(DISTINCT property_id) FROM $availability_table WHERE date >= CURDATE()"
+        );
         
-        if (!wp_next_scheduled('hostaway_wp_sync_availability')) {
-            wp_schedule_event(time(), 'hostaway_10min', 'hostaway_wp_sync_availability');
-        }
-    }
-    
-    /**
-     * Clear sync jobs
-     */
-    public function clearSyncJobs() {
-        wp_clear_scheduled_hook('hostaway_wp_sync_properties');
-        wp_clear_scheduled_hook('hostaway_wp_sync_rates');
-        wp_clear_scheduled_hook('hostaway_wp_sync_availability');
+        // Last sync time
+        $stats['last_sync'] = get_option('hostaway_sync_last_sync');
+        
+        return $stats;
     }
 }

@@ -1,6 +1,10 @@
 <?php
 
-namespace HostawayWP\Admin;
+namespace HostawaySync\Admin;
+
+use HostawaySync\Database\Database;
+use HostawaySync\API\HostawayClient;
+use HostawaySync\Sync\Synchronizer;
 
 /**
  * Admin functionality
@@ -11,372 +15,753 @@ class Admin {
      * Constructor
      */
     public function __construct() {
-        add_action('admin_init', [$this, 'init']);
-        add_action('admin_enqueue_scripts', [$this, 'enqueueScripts']);
+        add_action('admin_menu', array($this, 'add_admin_menu'));
+        add_action('admin_init', array($this, 'init_settings'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+        add_action('wp_ajax_hostaway_test_connection', array($this, 'ajax_test_connection'));
+        add_action('wp_ajax_hostaway_manual_sync', array($this, 'ajax_manual_sync'));
+        add_action('wp_ajax_hostaway_get_amenities', array($this, 'ajax_get_amenities'));
+        add_action('wp_ajax_hostaway_clear_cache', array($this, 'ajax_clear_cache'));
+        add_action('wp_ajax_hostaway_test_maps', array($this, 'ajax_test_maps'));
     }
     
     /**
-     * Initialize admin
+     * Add admin menu
      */
-    public function init() {
-        // Add meta boxes for property post type
-        add_action('add_meta_boxes', [$this, 'addMetaBoxes']);
-        add_action('save_post', [$this, 'saveMetaBoxes']);
+    public function add_admin_menu() {
+        add_menu_page(
+            __('Hostaway Sync', 'hostaway-sync'),
+            __('Hostaway Sync', 'hostaway-sync'),
+            'manage_options',
+            'hostaway-sync',
+            array($this, 'admin_page'),
+            'dashicons-update',
+            30
+        );
         
-        // Add custom columns to properties list
-        add_filter('manage_hostaway_property_posts_columns', [$this, 'addCustomColumns']);
-        add_action('manage_hostaway_property_posts_custom_column', [$this, 'renderCustomColumns'], 10, 2);
+        add_submenu_page(
+            'hostaway-sync',
+            __('Settings', 'hostaway-sync'),
+            __('Settings', 'hostaway-sync'),
+            'manage_options',
+            'hostaway-sync',
+            array($this, 'admin_page')
+        );
         
-        // Add bulk actions
-        add_filter('bulk_actions-edit-hostaway_property', [$this, 'addBulkActions']);
-        add_filter('handle_bulk_actions-edit-hostaway_property', [$this, 'handleBulkActions'], 10, 3);
+        add_submenu_page(
+            'hostaway-sync',
+            __('Properties', 'hostaway-sync'),
+            __('Properties', 'hostaway-sync'),
+            'manage_options',
+            'hostaway-sync-properties',
+            array($this, 'properties_page')
+        );
+        
+        add_submenu_page(
+            'hostaway-sync',
+            __('Sync Logs', 'hostaway-sync'),
+            __('Sync Logs', 'hostaway-sync'),
+            'manage_options',
+            'hostaway-sync-logs',
+            array($this, 'logs_page')
+        );
+        
+        add_submenu_page(
+            'hostaway-sync',
+            __('Debug', 'hostaway-sync'),
+            __('Debug', 'hostaway-sync'),
+            'manage_options',
+            'hostaway-sync-debug',
+            array($this, 'debug_page')
+        );
+    }
+    
+    /**
+     * Initialize settings
+     */
+    public function init_settings() {
+        register_setting('hostaway_sync_settings', 'hostaway_sync_hostaway_account_id');
+        register_setting('hostaway_sync_settings', 'hostaway_sync_hostaway_api_key');
+        register_setting('hostaway_sync_settings', 'hostaway_sync_google_maps_api_key');
+        register_setting('hostaway_sync_settings', 'hostaway_sync_auto_sync_enabled');
+        register_setting('hostaway_sync_settings', 'hostaway_sync_selected_amenities');
+        register_setting('hostaway_sync_settings', 'hostaway_sync_properties_per_page');
+        register_setting('hostaway_sync_settings', 'hostaway_sync_cache_duration');
     }
     
     /**
      * Enqueue admin scripts
      */
-    public function enqueueScripts($hook) {
-        if (strpos($hook, 'hostaway') !== false || $hook === 'post.php' || $hook === 'post-new.php') {
-            wp_enqueue_script('jquery');
-            wp_enqueue_media();
-            
-            wp_enqueue_script(
-                'hostaway-admin',
-                HOSTAWAY_WP_PLUGIN_URL . 'assets/js/admin.js',
-                ['jquery'],
-                HOSTAWAY_WP_VERSION,
-                true
-            );
-            
-            wp_enqueue_style(
-                'hostaway-admin',
-                HOSTAWAY_WP_PLUGIN_URL . 'assets/css/admin.css',
-                [],
-                HOSTAWAY_WP_VERSION
-            );
-            
-            wp_localize_script('hostaway-admin', 'hostawayAdmin', [
-                'ajaxUrl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('hostaway_admin_nonce'),
-                'strings' => [
-                    'syncSuccess' => __('Sync completed successfully', 'hostaway-wp'),
-                    'syncError' => __('Sync failed', 'hostaway-wp'),
-                    'testSuccess' => __('API connection successful', 'hostaway-wp'),
-                    'testError' => __('API connection failed', 'hostaway-wp'),
-                ],
-            ]);
+    public function enqueue_admin_scripts($hook) {
+        if (strpos($hook, 'hostaway-sync') === false) {
+            return;
         }
+        
+        wp_enqueue_script(
+            'hostaway-admin',
+            HOSTAWAY_SYNC_PLUGIN_URL . 'assets/js/admin.js',
+            array('jquery'),
+            HOSTAWAY_SYNC_VERSION,
+            true
+        );
+        
+        wp_enqueue_style(
+            'hostaway-admin',
+            HOSTAWAY_SYNC_PLUGIN_URL . 'assets/css/admin.css',
+            array(),
+            HOSTAWAY_SYNC_VERSION
+        );
+        
+        wp_localize_script('hostaway-admin', 'hostawayAdmin', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('hostaway_admin_nonce'),
+            'strings' => array(
+                'testingConnection' => __('Testing connection...', 'hostaway-sync'),
+                'connectionSuccess' => __('Connection successful!', 'hostaway-sync'),
+                'connectionFailed' => __('Connection failed', 'hostaway-sync'),
+                'syncing' => __('Syncing...', 'hostaway-sync'),
+                'syncComplete' => __('Sync completed', 'hostaway-sync'),
+                'syncFailed' => __('Sync failed', 'hostaway-sync'),
+                'clearingCache' => __('Clearing cache...', 'hostaway-sync'),
+                'cacheCleared' => __('Cache cleared', 'hostaway-sync')
+            )
+        ));
     }
     
     /**
-     * Add meta boxes
+     * Main admin page
      */
-    public function addMetaBoxes() {
-        add_meta_box(
-            'hostaway-property-details',
-            __('Property Details', 'hostaway-wp'),
-            [$this, 'renderPropertyDetailsMetaBox'],
-            'hostaway_property',
-            'normal',
-            'high'
-        );
+    public function admin_page() {
+        if (isset($_POST['submit'])) {
+            $this->save_settings();
+        }
         
-        add_meta_box(
-            'hostaway-property-images',
-            __('Property Images', 'hostaway-wp'),
-            [$this, 'renderPropertyImagesMetaBox'],
-            'hostaway_property',
-            'side',
-            'high'
-        );
-        
-        add_meta_box(
-            'hostaway-property-sync',
-            __('Sync Status', 'hostaway-wp'),
-            [$this, 'renderSyncStatusMetaBox'],
-            'hostaway_property',
-            'side',
-            'default'
-        );
-    }
-    
-    /**
-     * Render property details meta box
-     */
-    public function renderPropertyDetailsMetaBox($post) {
-        wp_nonce_field('hostaway_property_meta', 'hostaway_property_meta_nonce');
-        
-        $meta = get_post_meta($post->ID);
-        $hostaway_id = $meta['_hostaway_id'][0] ?? '';
-        $property_type = $meta['_property_type'][0] ?? '';
-        $location = $meta['_location'][0] ?? '';
-        $rooms = $meta['_rooms'][0] ?? 0;
-        $bathrooms = $meta['_bathrooms'][0] ?? 0;
-        $guests = $meta['_guests'][0] ?? 0;
-        $base_price = $meta['_base_price'][0] ?? 0;
-        $amenities = $meta['_amenities'][0] ?? '';
-        $features = $meta['_features'][0] ?? '';
+        $stats = $this->get_sync_stats();
         
         ?>
-        <table class="form-table">
-            <tr>
-                <th><label for="hostaway_id"><?php esc_html_e('Hostaway ID', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <input type="text" id="hostaway_id" name="hostaway_id" value="<?php echo esc_attr($hostaway_id); ?>" class="regular-text" readonly />
-                    <p class="description"><?php esc_html_e('This ID is automatically set from Hostaway', 'hostaway-wp'); ?></p>
-                </td>
-            </tr>
+        <div class="wrap">
+            <h1><?php _e('Hostaway Sync Settings', 'hostaway-sync'); ?></h1>
             
-            <tr>
-                <th><label for="property_type"><?php esc_html_e('Property Type', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <input type="text" id="property_type" name="property_type" value="<?php echo esc_attr($property_type); ?>" class="regular-text" />
-                </td>
-            </tr>
+            <?php $this->display_admin_notices(); ?>
             
-            <tr>
-                <th><label for="location"><?php esc_html_e('Location', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <input type="text" id="location" name="location" value="<?php echo esc_attr($location); ?>" class="regular-text" />
-                </td>
-            </tr>
-            
-            <tr>
-                <th><label for="rooms"><?php esc_html_e('Rooms', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <input type="number" id="rooms" name="rooms" value="<?php echo esc_attr($rooms); ?>" min="0" class="small-text" />
-                </td>
-            </tr>
-            
-            <tr>
-                <th><label for="bathrooms"><?php esc_html_e('Bathrooms', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <input type="number" id="bathrooms" name="bathrooms" value="<?php echo esc_attr($bathrooms); ?>" min="0" class="small-text" />
-                </td>
-            </tr>
-            
-            <tr>
-                <th><label for="guests"><?php esc_html_e('Max Guests', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <input type="number" id="guests" name="guests" value="<?php echo esc_attr($guests); ?>" min="1" class="small-text" />
-                </td>
-            </tr>
-            
-            <tr>
-                <th><label for="base_price"><?php esc_html_e('Base Price', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <input type="number" id="base_price" name="base_price" value="<?php echo esc_attr($base_price); ?>" step="0.01" min="0" class="small-text" />
-                    <span><?php echo esc_html(get_option('hostaway_wp_currency', 'USD')); ?></span>
-                </td>
-            </tr>
-            
-            <tr>
-                <th><label for="amenities"><?php esc_html_e('Amenities', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <textarea id="amenities" name="amenities" rows="5" class="large-text"><?php echo esc_textarea($amenities); ?></textarea>
-                    <p class="description"><?php esc_html_e('One amenity per line', 'hostaway-wp'); ?></p>
-                </td>
-            </tr>
-            
-            <tr>
-                <th><label for="features"><?php esc_html_e('Features', 'hostaway-wp'); ?></label></th>
-                <td>
-                    <textarea id="features" name="features" rows="5" class="large-text"><?php echo esc_textarea($features); ?></textarea>
-                    <p class="description"><?php esc_html_e('One feature per line', 'hostaway-wp'); ?></p>
-                </td>
-            </tr>
-        </table>
+            <div class="hostaway-admin-container">
+                <div class="hostaway-main-content">
+                    <form method="post" action="">
+                        <?php wp_nonce_field('hostaway_sync_settings', 'hostaway_sync_nonce'); ?>
+                        
+                        <div class="hostaway-settings-section">
+                            <h2><?php _e('API Configuration', 'hostaway-sync'); ?></h2>
+                            
+                            <table class="form-table">
+                                <tr>
+                                    <th scope="row">
+                                        <label for="hostaway_account_id"><?php _e('Hostaway Account ID', 'hostaway-sync'); ?></label>
+                                    </th>
+                                    <td>
+                                        <input type="text" id="hostaway_account_id" name="hostaway_sync_hostaway_account_id" 
+                                               value="<?php echo esc_attr(get_option('hostaway_sync_hostaway_account_id', '')); ?>" 
+                                               class="regular-text" />
+                                        <p class="description">
+                                            <?php _e('Your Hostaway Account ID from Settings > Hostaway API.', 'hostaway-sync'); ?>
+                                        </p>
+                                    </td>
+                                </tr>
+                                
+                                <tr>
+                                    <th scope="row">
+                                        <label for="hostaway_api_key"><?php _e('Hostaway API Key', 'hostaway-sync'); ?></label>
+                                    </th>
+                                    <td>
+                                        <input type="password" id="hostaway_api_key" name="hostaway_sync_hostaway_api_key" 
+                                               value="<?php echo esc_attr(get_option('hostaway_sync_hostaway_api_key', '')); ?>" 
+                                               class="regular-text" />
+                                        <p class="description">
+                                            <?php _e('Your Hostaway API Key from Settings > Hostaway API.', 'hostaway-sync'); ?>
+                                        </p>
+                                    </td>
+                                </tr>
+                                
+                                <tr>
+                                    <th scope="row">
+                                        <label for="google_maps_api_key"><?php _e('Google Maps API Key', 'hostaway-sync'); ?></label>
+                                    </th>
+                                    <td>
+                                        <input type="text" id="google_maps_api_key" name="hostaway_sync_google_maps_api_key" 
+                                               value="<?php echo esc_attr(get_option('hostaway_sync_google_maps_api_key', '')); ?>" 
+                                               class="regular-text" />
+                                        <p class="description">
+                                            <?php _e('Your Google Maps API Key for map functionality.', 'hostaway-sync'); ?>
+                                        </p>
+                                    </td>
+                                </tr>
+                                
+                                <tr>
+                                    <th scope="row"><?php _e('Test Connections', 'hostaway-sync'); ?></th>
+                                    <td>
+                                        <button type="button" id="test-hostaway-connection" class="button">
+                                            <?php _e('Test Hostaway Connection', 'hostaway-sync'); ?>
+                                        </button>
+                                        <button type="button" id="test-maps-connection" class="button">
+                                            <?php _e('Test Google Maps', 'hostaway-sync'); ?>
+                                        </button>
+                                        <div id="connection-results"></div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        
+                        <div class="hostaway-settings-section">
+                            <h2><?php _e('Sync Configuration', 'hostaway-sync'); ?></h2>
+                            
+                            <table class="form-table">
+                                <tr>
+                                    <th scope="row"><?php _e('Auto Sync', 'hostaway-sync'); ?></th>
+                                    <td>
+                                        <label>
+                                            <input type="checkbox" name="hostaway_sync_auto_sync_enabled" value="1" 
+                                                   <?php checked(get_option('hostaway_sync_auto_sync_enabled', true)); ?> />
+                                            <?php _e('Enable automatic synchronization every 10 minutes', 'hostaway-sync'); ?>
+                                        </label>
+                                    </td>
+                                </tr>
+                                
+                                <tr>
+                                    <th scope="row"><?php _e('Manual Sync', 'hostaway-sync'); ?></th>
+                                    <td>
+                                        <button type="button" id="manual-sync" class="button button-primary">
+                                            <?php _e('Sync Now', 'hostaway-sync'); ?>
+                                        </button>
+                                        <p class="description">
+                                            <?php _e('Manually trigger property synchronization.', 'hostaway-sync'); ?>
+                                        </p>
+                                    </td>
+                                </tr>
+                                
+                                <tr>
+                                    <th scope="row"><?php _e('Cache Management', 'hostaway-sync'); ?></th>
+                                    <td>
+                                        <button type="button" id="clear-cache" class="button">
+                                            <?php _e('Clear Cache', 'hostaway-sync'); ?>
+                                        </button>
+                                        <p class="description">
+                                            <?php _e('Clear all cached data and force fresh sync.', 'hostaway-sync'); ?>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        
+                        <div class="hostaway-settings-section">
+                            <h2><?php _e('Amenity Filter Settings', 'hostaway-sync'); ?></h2>
+                            <p><?php _e('Select which amenities should appear in the frontend filter sidebar.', 'hostaway-sync'); ?></p>
+                            
+                            <div id="amenities-container">
+                                <button type="button" id="load-amenities" class="button">
+                                    <?php _e('Load Amenities from Hostaway', 'hostaway-sync'); ?>
+                                </button>
+                                <div id="amenities-list"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="hostaway-settings-section">
+                            <h2><?php _e('Display Settings', 'hostaway-sync'); ?></h2>
+                            
+                            <table class="form-table">
+                                <tr>
+                                    <th scope="row">
+                                        <label for="properties_per_page"><?php _e('Properties per Page', 'hostaway-sync'); ?></label>
+                                    </th>
+                                    <td>
+                                        <input type="number" id="properties_per_page" name="hostaway_sync_properties_per_page" 
+                                               value="<?php echo esc_attr(get_option('hostaway_sync_properties_per_page', 15)); ?>" 
+                                               min="1" max="100" class="small-text" />
+                                        <p class="description">
+                                            <?php _e('Number of properties to display per page.', 'hostaway-sync'); ?>
+                                        </p>
+                                    </td>
+                                </tr>
+                                
+                                <tr>
+                                    <th scope="row">
+                                        <label for="cache_duration"><?php _e('Cache Duration (minutes)', 'hostaway-sync'); ?></label>
+                                    </th>
+                                    <td>
+                                        <input type="number" id="cache_duration" name="hostaway_sync_cache_duration" 
+                                               value="<?php echo esc_attr(get_option('hostaway_sync_cache_duration', 10)); ?>" 
+                                               min="1" max="60" class="small-text" />
+                                        <p class="description">
+                                            <?php _e('How long to cache API responses.', 'hostaway-sync'); ?>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        
+                        <?php submit_button(__('Save Settings', 'hostaway-sync')); ?>
+                    </form>
+                </div>
+                
+                <div class="hostaway-sidebar">
+                    <div class="hostaway-stats-widget">
+                        <h3><?php _e('Sync Statistics', 'hostaway-sync'); ?></h3>
+                        <ul>
+                            <li><strong><?php _e('Total Properties:', 'hostaway-sync'); ?></strong> <?php echo $stats['total_properties']; ?></li>
+                            <li><strong><?php _e('Active Properties:', 'hostaway-sync'); ?></strong> <?php echo $stats['active_properties']; ?></li>
+                            <li><strong><?php _e('Properties with Rates:', 'hostaway-sync'); ?></strong> <?php echo $stats['properties_with_rates']; ?></li>
+                            <li><strong><?php _e('Properties with Availability:', 'hostaway-sync'); ?></strong> <?php echo $stats['properties_with_availability']; ?></li>
+                            <li><strong><?php _e('Last Sync:', 'hostaway-sync'); ?></strong> <?php echo $stats['last_sync'] ? date('Y-m-d H:i:s', strtotime($stats['last_sync'])) : __('Never', 'hostaway-sync'); ?></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="hostaway-recent-logs-widget">
+                        <h3><?php _e('Recent Sync Logs', 'hostaway-sync'); ?></h3>
+                        <div id="recent-logs">
+                            <?php $this->display_recent_logs(); ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <?php
     }
     
     /**
-     * Render property images meta box
+     * Properties page
      */
-    public function renderPropertyImagesMetaBox($post) {
-        $gallery_ids = get_post_meta($post->ID, '_gallery_ids', true);
-        $gallery_ids = is_array($gallery_ids) ? $gallery_ids : [];
+    public function properties_page() {
+        global $wpdb;
+        
+        $properties_table = Database::get_properties_table();
+        $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+        $per_page = 20;
+        $offset = ($page - 1) * $per_page;
+        
+        $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+        $status = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '';
+        
+        $where_conditions = array('1=1');
+        $where_values = array();
+        
+        if (!empty($search)) {
+            $where_conditions[] = "(name LIKE %s OR city LIKE %s OR country LIKE %s)";
+            $where_values[] = "%$search%";
+            $where_values[] = "%$search%";
+            $where_values[] = "%$search%";
+        }
+        
+        if (!empty($status)) {
+            $where_conditions[] = "status = %s";
+            $where_values[] = $status;
+        }
+        
+        $where_clause = implode(' AND ', $where_conditions);
+        
+        // Get total count
+        $total_query = "SELECT COUNT(*) FROM $properties_table WHERE $where_clause";
+        if (!empty($where_values)) {
+            $total_query = $wpdb->prepare($total_query, $where_values);
+        }
+        $total = $wpdb->get_var($total_query);
+        
+        // Get properties
+        $query = "SELECT * FROM $properties_table WHERE $where_clause ORDER BY last_updated DESC LIMIT %d OFFSET %d";
+        $query_values = array_merge($where_values, array($per_page, $offset));
+        $properties = $wpdb->get_results($wpdb->prepare($query, $query_values));
         
         ?>
-        <div id="property-gallery">
-            <div class="gallery-preview">
-                <?php if (!empty($gallery_ids)): ?>
-                    <?php foreach ($gallery_ids as $id): ?>
-                        <?php $image = wp_get_attachment_image($id, 'thumbnail'); ?>
-                        <?php if ($image): ?>
-                            <div class="gallery-item" data-id="<?php echo esc_attr($id); ?>">
-                                <?php echo $image; ?>
-                                <button type="button" class="remove-gallery-item">×</button>
-                            </div>
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+        <div class="wrap">
+            <h1><?php _e('Properties', 'hostaway-sync'); ?></h1>
+            
+            <div class="tablenav top">
+                <div class="alignleft actions">
+                    <form method="get" action="">
+                        <input type="hidden" name="page" value="hostaway-sync-properties" />
+                        <input type="search" name="s" value="<?php echo esc_attr($search); ?>" placeholder="<?php _e('Search properties...', 'hostaway-sync'); ?>" />
+                        <select name="status">
+                            <option value=""><?php _e('All Statuses', 'hostaway-sync'); ?></option>
+                            <option value="active" <?php selected($status, 'active'); ?>><?php _e('Active', 'hostaway-sync'); ?></option>
+                            <option value="inactive" <?php selected($status, 'inactive'); ?>><?php _e('Inactive', 'hostaway-sync'); ?></option>
+                        </select>
+                        <?php submit_button(__('Filter', 'hostaway-sync'), 'secondary', 'submit', false); ?>
+                    </form>
+                </div>
+                
+                <div class="tablenav-pages">
+                    <?php
+                    $total_pages = ceil($total / $per_page);
+                    if ($total_pages > 1) {
+                        echo paginate_links(array(
+                            'base' => add_query_arg('paged', '%#%'),
+                            'format' => '',
+                            'prev_text' => __('&laquo;'),
+                            'next_text' => __('&raquo;'),
+                            'total' => $total_pages,
+                            'current' => $page
+                        ));
+                    }
+                    ?>
+                </div>
             </div>
             
-            <button type="button" id="add-gallery-images" class="button button-secondary">
-                <?php esc_html_e('Add Images', 'hostaway-wp'); ?>
-            </button>
-            
-            <input type="hidden" id="gallery_ids" name="gallery_ids" value="<?php echo esc_attr(implode(',', $gallery_ids)); ?>" />
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th><?php _e('Name', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Location', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Type', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Rooms/Baths', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Guests', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Price', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Status', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Last Updated', 'hostaway-sync'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($properties)): ?>
+                        <tr>
+                            <td colspan="8"><?php _e('No properties found.', 'hostaway-sync'); ?></td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($properties as $property): ?>
+                            <tr>
+                                <td><strong><?php echo esc_html($property->name); ?></strong></td>
+                                <td><?php echo esc_html($property->city . ', ' . $property->country); ?></td>
+                                <td><?php echo esc_html($property->property_type); ?></td>
+                                <td><?php echo $property->room_count . '/' . $property->bathroom_count; ?></td>
+                                <td><?php echo $property->guest_capacity; ?></td>
+                                <td><?php echo $property->currency . ' ' . number_format($property->base_price, 2); ?></td>
+                                <td>
+                                    <span class="status-<?php echo $property->status; ?>">
+                                        <?php echo ucfirst($property->status); ?>
+                                    </span>
+                                </td>
+                                <td><?php echo date('Y-m-d H:i:s', strtotime($property->last_updated)); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
         </div>
         <?php
     }
     
     /**
-     * Render sync status meta box
+     * Logs page
      */
-    public function renderSyncStatusMetaBox($post) {
-        $last_sync = get_post_meta($post->ID, '_last_sync', true);
-        $sync_status = get_post_meta($post->ID, '_sync_status', true);
+    public function logs_page() {
+        $logs = Database::get_recent_logs(100);
         
         ?>
-        <div class="sync-status">
-            <p>
-                <strong><?php esc_html_e('Last Sync:', 'hostaway-wp'); ?></strong>
-                <?php echo $last_sync ? esc_html($last_sync) : __('Never', 'hostaway-wp'); ?>
-            </p>
+        <div class="wrap">
+            <h1><?php _e('Sync Logs', 'hostaway-sync'); ?></h1>
             
-            <p>
-                <strong><?php esc_html_e('Status:', 'hostaway-wp'); ?></strong>
-                <span class="status-<?php echo esc_attr($sync_status ?: 'unknown'); ?>">
-                    <?php echo esc_html(ucfirst($sync_status ?: 'unknown')); ?>
-                </span>
-            </p>
-            
-            <button type="button" class="button button-secondary sync-single-property" data-property-id="<?php echo esc_attr($post->ID); ?>">
-                <?php esc_html_e('Sync Now', 'hostaway-wp'); ?>
-            </button>
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th><?php _e('Date', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Type', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Status', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Message', 'hostaway-sync'); ?></th>
+                        <th><?php _e('Execution Time', 'hostaway-sync'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($logs)): ?>
+                        <tr>
+                            <td colspan="5"><?php _e('No logs found.', 'hostaway-sync'); ?></td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($logs as $log): ?>
+                            <tr>
+                                <td><?php echo date('Y-m-d H:i:s', strtotime($log->created_at)); ?></td>
+                                <td><?php echo esc_html($log->sync_type); ?></td>
+                                <td>
+                                    <span class="status-<?php echo $log->status; ?>">
+                                        <?php echo ucfirst($log->status); ?>
+                                    </span>
+                                </td>
+                                <td><?php echo esc_html($log->message); ?></td>
+                                <td><?php echo number_format($log->execution_time, 4); ?>s</td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
         </div>
         <?php
     }
     
     /**
-     * Save meta boxes
+     * Save settings
      */
-    public function saveMetaBoxes($post_id) {
-        // Check nonce
-        if (!isset($_POST['hostaway_property_meta_nonce']) || 
-            !wp_verify_nonce($_POST['hostaway_property_meta_nonce'], 'hostaway_property_meta')) {
-            return;
+    private function save_settings() {
+        if (!wp_verify_nonce($_POST['hostaway_sync_nonce'], 'hostaway_sync_settings')) {
+            wp_die(__('Security check failed', 'hostaway-sync'));
         }
         
-        // Check permissions
-        if (!current_user_can('edit_post', $post_id)) {
-            return;
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
         }
         
-        // Check if this is an autosave
-        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-            return;
-        }
+        $fields = array(
+            'hostaway_sync_hostaway_account_id',
+            'hostaway_sync_hostaway_api_key',
+            'hostaway_sync_google_maps_api_key',
+            'hostaway_sync_auto_sync_enabled',
+            'hostaway_sync_selected_amenities',
+            'hostaway_sync_properties_per_page',
+            'hostaway_sync_cache_duration'
+        );
         
-        // Check post type
-        if (get_post_type($post_id) !== 'hostaway_property') {
-            return;
-        }
-        
-        // Save meta fields
-        $fields = [
-            'hostaway_id' => '_hostaway_id',
-            'property_type' => '_property_type',
-            'location' => '_location',
-            'rooms' => '_rooms',
-            'bathrooms' => '_bathrooms',
-            'guests' => '_guests',
-            'base_price' => '_base_price',
-            'amenities' => '_amenities',
-            'features' => '_features',
-        ];
-        
-        foreach ($fields as $field => $meta_key) {
-            if (isset($_POST[$field])) {
-                $value = sanitize_text_field($_POST[$field]);
-                update_post_meta($post_id, $meta_key, $value);
-            }
-        }
-        
-        // Save gallery IDs
-        if (isset($_POST['gallery_ids'])) {
-            $gallery_ids = array_filter(array_map('intval', explode(',', $_POST['gallery_ids'])));
-            update_post_meta($post_id, '_gallery_ids', $gallery_ids);
-        }
-    }
-    
-    /**
-     * Add custom columns
-     */
-    public function addCustomColumns($columns) {
-        $new_columns = [];
-        
-        foreach ($columns as $key => $value) {
-            $new_columns[$key] = $value;
+        foreach ($fields as $field) {
+            $value = isset($_POST[$field]) ? $_POST[$field] : '';
             
-            if ($key === 'title') {
-                $new_columns['hostaway_id'] = __('Hostaway ID', 'hostaway-wp');
-                $new_columns['property_type'] = __('Type', 'hostaway-wp');
-                $new_columns['location'] = __('Location', 'hostaway-wp');
-                $new_columns['price'] = __('Price', 'hostaway-wp');
-                $new_columns['sync_status'] = __('Sync Status', 'hostaway-wp');
-            }
-        }
-        
-        return $new_columns;
-    }
-    
-    /**
-     * Render custom columns
-     */
-    public function renderCustomColumns($column, $post_id) {
-        switch ($column) {
-            case 'hostaway_id':
-                echo esc_html(get_post_meta($post_id, '_hostaway_id', true));
-                break;
-                
-            case 'property_type':
-                echo esc_html(get_post_meta($post_id, '_property_type', true));
-                break;
-                
-            case 'location':
-                echo esc_html(get_post_meta($post_id, '_location', true));
-                break;
-                
-            case 'price':
-                $price = get_post_meta($post_id, '_base_price', true);
-                $currency = get_option('hostaway_wp_currency', 'USD');
-                echo esc_html($currency . ' ' . $price);
-                break;
-                
-            case 'sync_status':
-                $status = get_post_meta($post_id, '_sync_status', true);
-                $class = $status ?: 'unknown';
-                echo '<span class="status-' . esc_attr($class) . '">' . esc_html(ucfirst($class)) . '</span>';
-                break;
-        }
-    }
-    
-    /**
-     * Add bulk actions
-     */
-    public function addBulkActions($actions) {
-        $actions['sync_properties'] = __('Sync Properties', 'hostaway-wp');
-        return $actions;
-    }
-    
-    /**
-     * Handle bulk actions
-     */
-    public function handleBulkActions($redirect_to, $doaction, $post_ids) {
-        if ($doaction === 'sync_properties') {
-            $synced = 0;
-            
-            foreach ($post_ids as $post_id) {
-                // Trigger individual property sync
-                do_action('hostaway_wp_sync_single_property', $post_id);
-                $synced++;
+            if ($field === 'hostaway_sync_auto_sync_enabled') {
+                $value = !empty($value) ? 1 : 0;
+            } elseif ($field === 'hostaway_sync_selected_amenities') {
+                $value = is_array($value) ? $value : array();
+            } else {
+                $value = sanitize_text_field($value);
             }
             
-            $redirect_to = add_query_arg('synced', $synced, $redirect_to);
+            update_option($field, $value);
         }
         
-        return $redirect_to;
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-success"><p>' . __('Settings saved successfully.', 'hostaway-sync') . '</p></div>';
+        });
+    }
+    
+    /**
+     * Display admin notices
+     */
+    private function display_admin_notices() {
+        // Check if WooCommerce is active
+        if (!class_exists('WooCommerce')) {
+            echo '<div class="notice notice-warning"><p>';
+            _e('WooCommerce is required for booking functionality.', 'hostaway-sync');
+            echo '</p></div>';
+        }
+        
+        // Check API configuration
+        if (empty(get_option('hostaway_sync_hostaway_account_id')) || empty(get_option('hostaway_sync_hostaway_api_key'))) {
+            echo '<div class="notice notice-error"><p>';
+            _e('Please configure your Hostaway Account ID and API Key to enable synchronization.', 'hostaway-sync');
+            echo '</p></div>';
+        }
+    }
+    
+    /**
+     * Get sync statistics
+     */
+    private function get_sync_stats() {
+        $sync = new Synchronizer();
+        return $sync->get_property_stats();
+    }
+    
+    /**
+     * Display recent logs
+     */
+    private function display_recent_logs() {
+        $logs = Database::get_recent_logs(5);
+        
+        if (empty($logs)) {
+            echo '<p>' . __('No recent logs.', 'hostaway-sync') . '</p>';
+            return;
+        }
+        
+        echo '<ul>';
+        foreach ($logs as $log) {
+            $status_class = 'status-' . $log->status;
+            echo '<li class="' . $status_class . '">';
+            echo '<strong>' . date('H:i:s', strtotime($log->created_at)) . '</strong> - ';
+            echo esc_html($log->message);
+            echo '</li>';
+        }
+        echo '</ul>';
+    }
+    
+    /**
+     * AJAX test connection
+     */
+    public function ajax_test_connection() {
+        check_ajax_referer('hostaway_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        $api_client = new HostawayClient();
+        $result = $api_client->test_connection();
+        
+        wp_send_json($result);
+    }
+    
+    /**
+     * AJAX manual sync
+     */
+    public function ajax_manual_sync() {
+        check_ajax_referer('hostaway_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        $sync = new Synchronizer();
+        $sync->sync_properties();
+        
+        wp_send_json_success(__('Manual sync completed', 'hostaway-sync'));
+    }
+    
+    /**
+     * AJAX get amenities
+     */
+    public function ajax_get_amenities() {
+        check_ajax_referer('hostaway_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        $api_client = new HostawayClient();
+        $amenities = $api_client->get_all_amenities();
+        
+        wp_send_json_success($amenities);
+    }
+    
+    /**
+     * AJAX clear cache
+     */
+    public function ajax_clear_cache() {
+        check_ajax_referer('hostaway_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        $sync = new Synchronizer();
+        $sync->clear_cache();
+        
+        wp_send_json_success(__('Cache cleared', 'hostaway-sync'));
+    }
+    
+    /**
+     * AJAX test maps
+     */
+    public function ajax_test_maps() {
+        check_ajax_referer('hostaway_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        $api_key = get_option('hostaway_sync_google_maps_api_key', '');
+        
+        if (empty($api_key)) {
+            wp_send_json_error(__('Google Maps API key not configured', 'hostaway-sync'));
+        }
+        
+        // Simple test by making a request to Google Maps API
+        $test_url = "https://maps.googleapis.com/maps/api/js?key={$api_key}&libraries=places";
+        $response = wp_remote_get($test_url);
+        
+        if (is_wp_error($response)) {
+            wp_send_json_error($response->get_error_message());
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        
+        if ($status_code === 200) {
+            wp_send_json_success(__('Google Maps connection successful', 'hostaway-sync'));
+        } else {
+            wp_send_json_error(__('Google Maps connection failed', 'hostaway-sync'));
+        }
+    }
+    
+    /**
+     * Debug page
+     */
+    public function debug_page() {
+        ?>
+        <div class="wrap">
+            <h1><?php _e('Debug Information', 'hostaway-sync'); ?></h1>
+            
+            <div class="hostaway-debug-info">
+                <h2><?php _e('API Configuration', 'hostaway-sync'); ?></h2>
+                <table class="form-table">
+                    <tr>
+                        <th><?php _e('Account ID', 'hostaway-sync'); ?></th>
+                        <td><?php echo get_option('hostaway_sync_hostaway_account_id') ? '✅ Configured' : '❌ Missing'; ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php _e('API Key', 'hostaway-sync'); ?></th>
+                        <td><?php echo get_option('hostaway_sync_hostaway_api_key') ? '✅ Configured' : '❌ Missing'; ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php _e('Google Maps API Key', 'hostaway-sync'); ?></th>
+                        <td><?php echo get_option('hostaway_sync_google_maps_api_key') ? '✅ Configured' : '❌ Missing'; ?></td>
+                    </tr>
+                </table>
+                
+                <h2><?php _e('API Test', 'hostaway-sync'); ?></h2>
+                <button type="button" id="debug-test-api" class="button button-primary">
+                    <?php _e('Test API Connection', 'hostaway-sync'); ?>
+                </button>
+                <div id="debug-results"></div>
+                
+                <h2><?php _e('Recent Error Logs', 'hostaway-sync'); ?></h2>
+                <div id="debug-logs">
+                    <?php
+                    $log_file = WP_CONTENT_DIR . '/debug.log';
+                    if (file_exists($log_file)) {
+                        $logs = file_get_contents($log_file);
+                        $hostaway_logs = array_filter(explode("\n", $logs), function($line) {
+                            return strpos($line, 'Hostaway') !== false;
+                        });
+                        $recent_logs = array_slice($hostaway_logs, -10);
+                        
+                        if (!empty($recent_logs)) {
+                            echo '<pre>' . esc_html(implode("\n", $recent_logs)) . '</pre>';
+                        } else {
+                            echo '<p>' . __('No Hostaway-related logs found.', 'hostaway-sync') . '</p>';
+                        }
+                    } else {
+                        echo '<p>' . __('Debug log file not found.', 'hostaway-sync') . '</p>';
+                    }
+                    ?>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            $('#debug-test-api').on('click', function() {
+                var $button = $(this);
+                var $results = $('#debug-results');
+                
+                $button.prop('disabled', true).text('Testing...');
+                $results.html('<p>Testing API connection...</p>');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    method: 'POST',
+                    data: {
+                        action: 'hostaway_test_connection',
+                        nonce: '<?php echo wp_create_nonce('hostaway_admin_nonce'); ?>'
+                    },
+                    success: function(response) {
+                        $results.html('<pre>' + JSON.stringify(response, null, 2) + '</pre>');
+                    },
+                    error: function(xhr, status, error) {
+                        $results.html('<p style="color: red;">Error: ' + error + '</p>');
+                    },
+                    complete: function() {
+                        $button.prop('disabled', false).text('Test API Connection');
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
     }
 }

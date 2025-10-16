@@ -1,306 +1,259 @@
-# Hostaway WP Rentals Plugin
+# Hostaway Real-Time Sync WordPress Plugin
 
-A comprehensive WordPress plugin that integrates Hostaway property management with WordPress, featuring real-time synchronization, advanced search and filtering, Google Maps integration, and WooCommerce booking system.
+A comprehensive WordPress plugin that synchronizes property data from Hostaway.com in real-time and integrates with WooCommerce for seamless booking and payment processing.
 
 ## Features
 
 ### 🔄 Real-Time Synchronization
-- **10-minute sync intervals** for near real-time accuracy
-- Automatic property, rates, and availability updates
-- Manual sync option with admin controls
-- Comprehensive sync logging and monitoring
+- Automatic property sync every 10 minutes via WP-Cron
+- Manual sync capability with admin controls
+- Intelligent change detection (only updates modified data)
+- Comprehensive error logging and status monitoring
+- Configurable sync frequency and cache duration
 
 ### 🏠 Property Management
-- Custom database tables for optimal performance
-- WordPress CPT integration for SEO
-- Automatic image downloading and media library integration
-- Property categorization and amenity management
+- Complete property information sync (details, images, amenities, rates)
+- Availability calendar synchronization
+- Property categorization and filtering
+- High-performance database storage with optimized queries
+- Direct image loading from Hostaway CDN (no local storage)
 
 ### 🔍 Advanced Search & Filtering
-- Location-based search with autocomplete
-- Date range selection with availability checking
-- Guest capacity filtering (adults, children, infants)
-- Amenity-based filtering
-- Price range filtering
-- Room and bathroom filtering
+- Location-based search with city dropdown
+- Date range and guest count filtering
+- Amenity-based filtering (configurable by admin)
+- Property type, room count, and price range filters
+- Real-time search results with AJAX
 
 ### 🗺️ Interactive Maps
-- Google Maps integration with custom markers
-- Property hover cards with images and pricing
+- Google Maps integration with property markers
 - Map/list view toggle
+- Property information on hover
+- Single property location mapping
 - Responsive map design
 
-### 💳 WooCommerce Integration
+### 🛒 WooCommerce Integration
 - Seamless booking flow through WooCommerce
 - Stripe payment processing
-- Automatic order creation and management
-- Hostaway reservation synchronization
-- Email notifications with booking details
+- Automatic Hostaway reservation creation
+- Order management with booking details
+- Reservation status tracking
+- Booking confirmation emails
 
 ### 📱 Responsive Design
 - Mobile-first responsive layout
+- Yacht-inspired modern design
 - Touch-friendly interface
-- Optimized for all screen sizes
-- Modern, clean UI matching yacht rental aesthetics
+- Optimized for all device sizes
+- Fast loading with lazy image loading
 
 ## Installation
 
-1. **Upload Plugin Files**
-   ```bash
-   # Upload the entire plugin folder to:
-   /wp-content/plugins/hostaway-wp/
-   ```
-
-2. **Install Dependencies**
-   ```bash
-   cd /wp-content/plugins/hostaway-wp/
-   composer install
-   ```
-
-3. **Activate Plugin**
-   - Go to WordPress Admin → Plugins
-   - Activate "Hostaway WP Rentals"
-
-4. **Configure Settings**
-   - Navigate to Hostaway → Settings
-   - Enter your Hostaway API credentials
-   - Configure Google Maps API key
-   - Set currency and locale preferences
+1. Upload the plugin files to `/wp-content/plugins/hostaway-real-time-sync/`
+2. Activate the plugin through the 'Plugins' screen in WordPress
+3. Install and activate WooCommerce (required for booking functionality)
+4. Configure your API credentials in the admin settings
 
 ## Configuration
 
-### Required API Keys
+### API Setup
 
-1. **Hostaway API**
-   - Get your API key and secret from Hostaway dashboard
-   - Enter in Hostaway → Settings
+1. **Hostaway API Credentials**
+   - Log in to your Hostaway account
+   - Navigate to Settings > Hostaway API
+   - Click "Create" to generate a new API Key
+   - Copy your Account ID and API Key
+   - Enter credentials in `Hostaway Sync > Settings`
+   - Test connection to verify setup
 
-2. **Google Maps API**
-   - Enable Maps JavaScript API
-   - Enable Places API (for location autocomplete)
+2. **Google Maps API Key**
+   - Create a Google Maps API key in Google Cloud Console
+   - Enable Maps JavaScript API and Places API
    - Enter API key in plugin settings
 
-### WooCommerce Setup
+### Admin Configuration
 
-1. **Install WooCommerce**
-   - Plugin requires WooCommerce to be installed and activated
+Navigate to `Hostaway Sync > Settings` to configure:
 
-2. **Configure Stripe**
-   - Install WooCommerce Stripe Gateway
-   - Configure your Stripe API keys
-   - Enable Stripe for payments
+- **API Configuration**: Hostaway and Google Maps credentials
+- **Sync Settings**: Auto-sync toggle, manual sync, cache management
+- **Amenity Filter**: Select which amenities appear in frontend filters
+- **Display Settings**: Properties per page, cache duration
 
-3. **Create Pages**
-   - The plugin automatically creates "Properties" and "Search" pages
-   - Customize these pages as needed
+## Shortcodes
 
-## Usage
-
-### Shortcodes
-
-#### Search Form
+### Search Widget
 ```
 [hostaway_search]
 ```
-Displays a property search form with location, dates, and guest selection.
+Displays a search form with location, dates, and guest selection.
 
-#### Properties Listing
+**Parameters:**
+- `style`: Search form style (default, compact)
+- `show_guests`: Show guest selection (true/false)
+- `show_dates`: Show date selection (true/false)
+
+### Properties Grid
 ```
 [hostaway_properties]
 ```
-Shows the complete properties listing page with search, filters, and map.
+Displays the main properties listing page with filters and map.
 
-#### Single Property
+**Parameters:**
+- `per_page`: Number of properties per page (default: 15)
+- `show_map`: Enable map functionality (true/false)
+- `show_filters`: Enable filter sidebar (true/false)
+
+### Single Property
 ```
-[hostaway_property id="123"]
+[hostaway_property property_id="123"]
 ```
-Displays a single property (optional, uses post template by default).
+Displays a single property page with booking form.
 
-### URL Structure
+## Database Schema
 
-- **Properties Page**: `/properties/`
-- **Single Property**: `/properties/property-slug/`
-- **Search with Parameters**: `/properties/?location=miami&checkin=2025-10-20&checkout=2025-10-25&adults=2`
+The plugin creates the following database tables:
 
-### Admin Features
+- `wp_hostaway_properties`: Property information and details
+- `wp_hostaway_rates`: Property rates and pricing
+- `wp_hostaway_availability`: Availability calendar data
+- `wp_hostaway_reservations`: Booking and reservation tracking
+- `wp_hostaway_sync_log`: Synchronization activity logs
 
-#### Settings Page
-- API configuration and testing
-- Sync interval management
-- Currency and locale settings
-- Map and filter options
+## API Integration
 
-#### Property Management
-- View all synced properties
-- Individual property sync
-- Property details and images
-- Sync status monitoring
+### Hostaway API Endpoints Used
 
-#### Sync Log
-- Complete sync history
-- Error tracking and debugging
-- Performance monitoring
+- `/listings`: Fetch property listings
+- `/listings/{id}`: Get individual property details
+- `/listings/{id}/calendarPricing`: Property rates
+- `/listings/{id}/calendar`: Availability calendar
+- `/reservations`: Create and manage reservations
+- `/accessTokens`: OAuth authentication
 
-## API Endpoints
+### Data Synchronization
 
-The plugin provides REST API endpoints for frontend functionality:
+The plugin synchronizes the following data types:
 
-- `GET /wp-json/hostaway/v1/search` - Search properties
-- `GET /wp-json/hostaway/v1/filters` - Get available filters
-- `GET /wp-json/hostaway/v1/properties` - Get properties
-- `GET /wp-json/hostaway/v1/availability/{id}` - Get property availability
-- `POST /wp-json/hostaway/v1/calculate-price` - Calculate booking price
+1. **Properties**: Basic information, descriptions, location data
+2. **Rates**: Dynamic pricing with date ranges
+3. **Availability**: Calendar availability with booking rules
+4. **Amenities**: Property features and facilities
+5. **Images**: Property photos (loaded directly from Hostaway)
 
-## Database Structure
+## Booking Flow
 
-### Custom Tables
-
-#### wp_hostaway_properties
-- Property details and metadata
-- Location coordinates
-- Amenities and features
-- Gallery images
-
-#### wp_hostaway_rates
-- Daily pricing information
-- Minimum stay requirements
-- Guest capacity limits
-- Currency information
-
-#### wp_hostaway_availability
-- Booking availability
-- Date-specific availability
-- Real-time updates
-
-#### wp_hostaway_sync_log
-- Sync operation history
-- Error tracking
-- Performance metrics
+1. **Search**: User searches for properties with filters
+2. **Selection**: User views property details and availability
+3. **Booking**: User fills booking form with dates and guests
+4. **Payment**: WooCommerce processes payment via Stripe
+5. **Reservation**: Plugin creates reservation in Hostaway
+6. **Confirmation**: User receives booking confirmation
 
 ## Customization
 
 ### Styling
-- CSS variables for easy theming
-- Responsive design system
-- Customizable color scheme
-- Override templates in theme
+- Modify `/assets/css/frontend.css` for frontend styling
+- Modify `/assets/css/admin.css` for admin styling
+- Use WordPress customizer for theme integration
 
-### Templates
-Templates can be overridden by copying to your theme:
-```
-your-theme/hostaway-wp/
-├── search-form.php
-├── properties-listing.php
-├── property-tile.php
-├── single-property.php
-└── booking-widget.php
-```
+### Functionality
+- Extend classes in `/includes/` directory
+- Hook into plugin actions and filters
+- Customize shortcode output with template overrides
 
 ### Hooks and Filters
 
-#### Actions
-- `hostaway_wp_before_property_display` - Before property rendering
-- `hostaway_wp_after_property_display` - After property rendering
-- `hostaway_wp_before_booking_form` - Before booking form
-- `hostaway_wp_after_booking_form` - After booking form
+**Actions:**
+- `hostaway_sync_before_property_update`: Before property sync
+- `hostaway_sync_after_property_update`: After property sync
+- `hostaway_booking_before_process`: Before booking processing
+- `hostaway_booking_after_process`: After booking processing
 
-#### Filters
-- `hostaway_wp_property_data` - Modify property data
-- `hostaway_wp_search_params` - Modify search parameters
-- `hostaway_wp_booking_total` - Modify booking total calculation
-- `hostaway_wp_email_content` - Modify email content
+**Filters:**
+- `hostaway_property_search_args`: Modify search parameters
+- `hostaway_property_display_data`: Customize property display
+- `hostaway_booking_form_fields`: Modify booking form fields
+
+## Performance Optimization
+
+- **Caching**: Transient-based caching for API responses
+- **Database**: Optimized queries with proper indexing
+- **Images**: Lazy loading and CDN usage
+- **AJAX**: Asynchronous data loading
+- **Compression**: Minified CSS and JavaScript
+
+## Security Features
+
+- **Nonces**: CSRF protection for all forms
+- **Sanitization**: Input validation and output escaping
+- **Capabilities**: User permission checks
+- **SQL Injection**: Prepared statements for all queries
+- **API Security**: Secure credential storage
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **API Connection Failed**
-   - Verify API credentials in settings
-   - Check API key permissions
-   - Ensure proper network connectivity
+1. **Sync Not Working**
+   - Check API credentials
+   - Verify WP-Cron is running
+   - Check sync logs in admin
 
-2. **Properties Not Syncing**
-   - Check sync log for errors
-   - Verify cron jobs are running
-   - Test manual sync functionality
-
-3. **Maps Not Loading**
+2. **Maps Not Loading**
    - Verify Google Maps API key
-   - Check API key restrictions
-   - Ensure required APIs are enabled
+   - Check API restrictions
+   - Enable required APIs
 
-4. **Booking Issues**
-   - Verify WooCommerce is active
+3. **Booking Issues**
+   - Ensure WooCommerce is active
    - Check Stripe configuration
-   - Review order creation process
+   - Verify Hostaway reservation creation
 
 ### Debug Mode
 
-Enable WordPress debug mode for detailed error logging:
+Enable debug mode by adding to `wp-config.php`:
 ```php
-define('WP_DEBUG', true);
-define('WP_DEBUG_LOG', true);
+define('HOSTAWAY_SYNC_DEBUG', true);
 ```
 
-### Support
+### Log Files
 
-For technical support and documentation:
-- Check the sync log for error details
-- Review WordPress error logs
-- Verify API credentials and permissions
-- Test with minimal configuration
+Check the following for detailed logs:
+- WordPress error log
+- Plugin sync logs (Admin > Hostaway Sync > Logs)
+- WooCommerce order notes
 
-## Performance Optimization
+## Support
 
-### Caching
-- Transient caching for API responses
-- Database query optimization
-- Image lazy loading
-- Map marker clustering
-
-### Database
-- Indexed custom tables
-- Optimized queries
-- Pagination support
-- Efficient data structures
-
-## Security
-
-### Data Protection
-- Prepared SQL statements
-- Input sanitization
-- Output escaping
-- Nonce verification
-- Capability checks
-
-### API Security
-- Secure credential storage
-- HTTPS enforcement
-- Request validation
-- Error handling
+For support and documentation:
+- Plugin documentation: [Link to documentation]
+- Hostaway API docs: https://api.hostaway.com/documentation
+- WooCommerce integration: [WooCommerce docs]
 
 ## Changelog
 
 ### Version 1.0.0
 - Initial release
-- Real-time synchronization
-- Advanced search and filtering
+- Real-time property synchronization
+- WooCommerce booking integration
 - Google Maps integration
-- WooCommerce booking system
 - Responsive design
 - Admin management interface
 
-## License
-
-GPL-2.0-or-later
-
 ## Requirements
 
-- WordPress 5.0+
-- PHP 7.4+
-- WooCommerce 5.0+
-- MySQL 5.6+
+- WordPress 5.0 or higher
+- PHP 7.4 or higher
+- WooCommerce 5.0 or higher
+- MySQL 5.6 or higher
+- Hostaway API access
+- Google Maps API key
+
+## License
+
+This plugin is licensed under the GPL v2 or later.
 
 ## Credits
 
-Developed for Hostaway integration with WordPress and WooCommerce.
+Developed for seamless integration between Hostaway property management and WordPress/WooCommerce booking systems.

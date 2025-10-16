@@ -1,6 +1,8 @@
 <?php
 
-namespace HostawayWP\API;
+namespace HostawaySync\API;
+
+use HostawaySync\Database\Database;
 
 /**
  * Hostaway API Client
@@ -10,363 +12,439 @@ class HostawayClient {
     /**
      * API base URL
      */
-    private $base_url = 'https://api.hostaway.com/v1';
+    const API_BASE_URL = 'https://api.hostaway.com/v1';
     
     /**
      * API credentials
      */
     private $account_id;
     private $api_key;
-    private $access_token;
-    private $token_expires_at;
-    
-    /**
-     * Request timeout
-     */
-    private $timeout = 30;
     
     /**
      * Constructor
      */
-    public function __construct($account_id = null, $api_key = null) {
-        $this->account_id = $account_id ?: get_option('hostaway_wp_account_id');
-        $this->api_key = $api_key ?: get_option('hostaway_wp_api_key');
+    public function __construct() {
+        $this->account_id = get_option('hostaway_sync_hostaway_account_id', '');
+        $this->api_key = get_option('hostaway_sync_hostaway_api_key', '');
+    }
+    
+    /**
+     * Make API request
+     */
+    private function make_request($endpoint, $method = 'GET', $data = null) {
+        if (empty($this->account_id) || empty($this->api_key)) {
+            throw new \Exception('Hostaway API credentials not configured');
+        }
         
-        // Load cached access token
-        $this->access_token = get_transient('hostaway_wp_access_token');
-        $this->token_expires_at = get_transient('hostaway_wp_token_expires_at');
+        $url = self::API_BASE_URL . $endpoint;
+        
+        $args = array(
+            'method' => $method,
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $this->get_access_token(),
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        );
+        
+        if ($data && in_array($method, ['POST', 'PUT', 'PATCH'])) {
+            $args['body'] = wp_json_encode($data);
+        }
+        
+        $response = wp_remote_request($url, $args);
+        
+        if (is_wp_error($response)) {
+            $error_message = $response->get_error_message();
+            error_log('Hostaway API Request Error: ' . $error_message);
+            throw new \Exception('API request failed: ' . $error_message);
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        error_log('Hostaway API Status: ' . $status_code . ', Body: ' . $body);
+        
+        if ($status_code >= 400) {
+            $error_data = json_decode($body, true);
+            $error_message = isset($error_data['message']) ? $error_data['message'] : 'API request failed';
+            error_log('Hostaway API Error Response: ' . $body);
+            throw new \Exception("API Error ($status_code): $error_message");
+        }
+        
+        $decoded_body = json_decode($body, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \Exception('Invalid JSON response: ' . json_last_error_msg());
+        }
+        
+        return $decoded_body;
+    }
+    
+    /**
+     * Get access token using client credentials
+     */
+    private function get_access_token() {
+        $cache_key = 'hostaway_access_token';
+        $cached_token = get_transient($cache_key);
+        
+        if ($cached_token) {
+            return $cached_token;
+        }
+        
+        $url = 'https://api.hostaway.com/v1/accessTokens';
+        
+        $args = array(
+            'method' => 'POST',
+            'headers' => array(
+                'Content-Type' => 'application/x-www-form-urlencoded',
+                'Accept' => 'application/json'
+            ),
+            'body' => http_build_query(array(
+                'grant_type' => 'client_credentials',
+                'client_id' => $this->account_id,
+                'client_secret' => $this->api_key,
+                'scope' => 'general'
+            )),
+            'timeout' => 30
+        );
+        
+        $response = wp_remote_request($url, $args);
+        
+        if (is_wp_error($response)) {
+            $error_message = $response->get_error_message();
+            error_log('Hostaway Token Request Error: ' . $error_message);
+            throw new \Exception('Failed to get access token: ' . $error_message);
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        error_log('Hostaway Token Response Status: ' . $status_code . ', Body: ' . $body);
+        
+        if ($status_code !== 200) {
+            $error_data = json_decode($body, true);
+            $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to get access token';
+            error_log('Hostaway Token Error Response: ' . $body);
+            throw new \Exception("Token Error ($status_code): $error_message");
+        }
+        
+        $token_data = json_decode($body, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \Exception('Invalid JSON response for token: ' . json_last_error_msg());
+        }
+        
+        if (!isset($token_data['access_token'])) {
+            error_log('Hostaway Token Response Missing access_token: ' . $body);
+            throw new \Exception('Invalid token response - missing access_token');
+        }
+        
+        $access_token = $token_data['access_token'];
+        // Access token is valid for up to 24 months, cache for 12 months
+        $expires_in = 12 * 30 * 24 * 60 * 60; // 12 months in seconds
+        
+        set_transient($cache_key, $access_token, $expires_in);
+        
+        return $access_token;
     }
     
     /**
      * Test API connection
      */
-    public function testConnection() {
+    public function test_connection() {
         try {
-            // Get access token first
-            $token_result = $this->getAccessToken();
-            
-            if (!$token_result['success']) {
-                return [
+            // First test the access token
+            $token = $this->get_access_token();
+            if (!$token) {
+                return array(
                     'success' => false,
-                    'message' => $token_result['message'],
-                ];
+                    'message' => __('Failed to get access token', 'hostaway-sync')
+                );
             }
             
-            // Test with a simple API call
-            $response = $this->makeRequest('GET', '/listings', [], 1, 1);
+            // Test the listings endpoint
+            $response = $this->make_request('/listings');
             
-            if ($response && isset($response['status']) && $response['status'] === 'success') {
-                return [
+            // Log the response for debugging
+            error_log('Hostaway API Response: ' . wp_json_encode($response));
+            
+            if (is_array($response) && (isset($response['data']) || isset($response['result']) || isset($response['status']))) {
+                return array(
                     'success' => true,
-                    'message' => __('API connection successful', 'hostaway-wp'),
-                ];
+                    'message' => __('Connection successful', 'hostaway-sync'),
+                    'data' => array(
+                        'token_received' => true,
+                        'response_keys' => array_keys($response),
+                        'sample_data' => array_slice($response, 0, 2)
+                    )
+                );
             } else {
-                return [
+                return array(
                     'success' => false,
-                    'message' => __('API connection failed', 'hostaway-wp'),
-                ];
+                    'message' => __('Invalid API response format: ' . wp_json_encode($response), 'hostaway-sync')
+                );
             }
-        } catch (Exception $e) {
-            return [
+        } catch (\Exception $e) {
+            error_log('Hostaway API Error: ' . $e->getMessage());
+            return array(
                 'success' => false,
-                'message' => sprintf(__('API connection error: %s', 'hostaway-wp'), $e->getMessage()),
-            ];
+                'message' => $e->getMessage()
+            );
         }
-    }
-    
-    /**
-     * Get access token using OAuth 2.0 Client Credentials Grant
-     */
-    private function getAccessToken() {
-        // Check if we have a valid cached token
-        if ($this->access_token && $this->token_expires_at && time() < $this->token_expires_at) {
-            return ['success' => true, 'token' => $this->access_token];
-        }
-        
-        if (!$this->account_id || !$this->api_key) {
-            return [
-                'success' => false,
-                'message' => __('Account ID and API Key are required', 'hostaway-wp'),
-            ];
-        }
-        
-        $url = 'https://api.hostaway.com/v1/accessTokens';
-        
-        $data = [
-            'grant_type' => 'client_credentials',
-            'client_id' => $this->account_id,
-            'client_secret' => $this->api_key,
-            'scope' => 'general',
-        ];
-        
-        $args = [
-            'method' => 'POST',
-            'headers' => [
-                'Content-Type' => 'application/x-www-form-urlencoded',
-            ],
-            'body' => http_build_query($data),
-            'timeout' => $this->timeout,
-        ];
-        
-        $response = wp_remote_post($url, $args);
-        
-        if (is_wp_error($response)) {
-            error_log('Hostaway API Token Request Error: ' . $response->get_error_message());
-            return [
-                'success' => false,
-                'message' => $response->get_error_message(),
-            ];
-        }
-        
-        $status_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        
-        if ($status_code !== 200) {
-            return [
-                'success' => false,
-                'message' => sprintf(__('Failed to get access token. HTTP %d: %s', 'hostaway-wp'), $status_code, $body),
-            ];
-        }
-        
-        $data = json_decode($body, true);
-        
-        if (!isset($data['access_token'])) {
-            return [
-                'success' => false,
-                'message' => __('Invalid response from Hostaway API', 'hostaway-wp'),
-            ];
-        }
-        
-        // Cache the token
-        $this->access_token = $data['access_token'];
-        $expires_in = isset($data['expires_in']) ? intval($data['expires_in']) : 3600;
-        $this->token_expires_at = time() + $expires_in - 300; // 5 minutes buffer
-        
-        set_transient('hostaway_wp_access_token', $this->access_token, $expires_in - 300);
-        set_transient('hostaway_wp_token_expires_at', $this->token_expires_at, $expires_in - 300);
-        
-        return ['success' => true, 'token' => $this->access_token];
     }
     
     /**
      * Get all properties
      */
-    public function getProperties($page = 1, $limit = 100) {
-        $params = [
-            'page' => $page,
-            'limit' => $limit,
-        ];
-        
-        return $this->makeRequest('GET', '/listings', $params);
+    public function get_properties($limit = 100, $offset = 0) {
+        $endpoint = "/listings?limit=$limit&offset=$offset";
+        return $this->make_request($endpoint);
     }
     
     /**
-     * Get single property
+     * Get property details
      */
-    public function getProperty($property_id) {
-        return $this->makeRequest('GET', "/listings/{$property_id}");
-    }
-    
-    /**
-     * Get property images
-     */
-    public function getPropertyImages($property_id) {
-        return $this->makeRequest('GET', "/listings/{$property_id}/images");
+    public function get_property_details($listing_id) {
+        $endpoint = "/listings/$listing_id";
+        return $this->make_request($endpoint);
     }
     
     /**
      * Get property rates
      */
-    public function getPropertyRates($property_id, $start_date = null, $end_date = null) {
-        $params = [];
+    public function get_property_rates($listing_id, $date_from = null, $date_to = null) {
+        $endpoint = "/listings/$listing_id/calendarPricing";
         
-        if ($start_date) {
-            $params['startDate'] = $start_date;
+        if ($date_from && $date_to) {
+            $endpoint .= "?dateFrom=$date_from&dateTo=$date_to";
         }
         
-        if ($end_date) {
-            $params['endDate'] = $end_date;
-        }
-        
-        return $this->makeRequest('GET', "/listings/{$property_id}/calendar", $params);
+        return $this->make_request($endpoint);
     }
     
     /**
      * Get property availability
      */
-    public function getPropertyAvailability($property_id, $start_date = null, $end_date = null) {
-        $params = [];
+    public function get_property_availability($listing_id, $date_from = null, $date_to = null) {
+        $endpoint = "/listings/$listing_id/calendar";
         
-        if ($start_date) {
-            $params['startDate'] = $start_date;
+        if ($date_from && $date_to) {
+            $endpoint .= "?dateFrom=$date_from&dateTo=$date_to";
         }
         
-        if ($end_date) {
-            $params['endDate'] = $end_date;
-        }
-        
-        return $this->makeRequest('GET', "/listings/{$property_id}/calendar", $params);
+        return $this->make_request($endpoint);
     }
     
     /**
      * Get property amenities
      */
-    public function getPropertyAmenities($property_id) {
-        return $this->makeRequest('GET', "/listings/{$property_id}/amenities");
+    public function get_property_amenities($listing_id) {
+        $endpoint = "/listings/$listing_id";
+        $response = $this->make_request($endpoint);
+        
+        if (isset($response['result']) && isset($response['result']['amenities'])) {
+            return $response['result']['amenities'];
+        }
+        
+        return array();
+    }
+    
+    /**
+     * Get all available amenities
+     */
+    public function get_all_amenities() {
+        $amenities = array();
+        
+        try {
+            // Get a sample of properties to extract amenities
+            $properties = $this->get_properties(50);
+            
+            if (isset($properties['result']) && is_array($properties['result'])) {
+                foreach ($properties['result'] as $property) {
+                    if (isset($property['amenities']) && is_array($property['amenities'])) {
+                        foreach ($property['amenities'] as $amenity) {
+                            if (isset($amenity['id']) && isset($amenity['name'])) {
+                                $amenities[$amenity['id']] = $amenity['name'];
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            Database::log_sync('amenities_fetch', 'error', $e->getMessage());
+        }
+        
+        return $amenities;
     }
     
     /**
      * Create reservation
      */
-    public function createReservation($property_id, $data) {
-        $reservation_data = [
-            'listingId' => $property_id,
-            'checkIn' => $data['checkin'],
-            'checkOut' => $data['checkout'],
-            'guests' => $data['guests'],
-            'firstName' => $data['first_name'],
-            'lastName' => $data['last_name'],
-            'email' => $data['email'],
-            'phone' => $data['phone'],
-            'notes' => $data['notes'] ?? '',
-            'source' => 'wordpress_plugin',
-        ];
+    public function create_reservation($listing_id, $reservation_data) {
+        $endpoint = "/reservations";
         
-        return $this->makeRequest('POST', '/reservations', $reservation_data);
+        $data = array(
+            'listingId' => $listing_id,
+            'arrivalDate' => $reservation_data['checkin_date'],
+            'departureDate' => $reservation_data['checkout_date'],
+            'guestCount' => $reservation_data['guest_count'],
+            'totalPrice' => $reservation_data['total_amount'],
+            'currency' => $reservation_data['currency'] ?? 'USD',
+            'firstName' => $reservation_data['first_name'],
+            'lastName' => $reservation_data['last_name'],
+            'email' => $reservation_data['email'],
+            'phone' => $reservation_data['phone'] ?? '',
+            'notes' => $reservation_data['notes'] ?? ''
+        );
+        
+        return $this->make_request($endpoint, 'POST', $data);
     }
     
     /**
      * Get reservation details
      */
-    public function getReservation($reservation_id) {
-        return $this->makeRequest('GET', "/reservations/{$reservation_id}");
+    public function get_reservation($reservation_id) {
+        $endpoint = "/reservations/$reservation_id";
+        return $this->make_request($endpoint);
+    }
+    
+    /**
+     * Update reservation
+     */
+    public function update_reservation($reservation_id, $data) {
+        $endpoint = "/reservations/$reservation_id";
+        return $this->make_request($endpoint, 'PUT', $data);
     }
     
     /**
      * Cancel reservation
      */
-    public function cancelReservation($reservation_id, $reason = '') {
-        $data = [];
-        if ($reason) {
-            $data['cancellationReason'] = $reason;
-        }
+    public function cancel_reservation($reservation_id, $reason = '') {
+        $endpoint = "/reservations/$reservation_id";
+        $data = array(
+            'status' => 'cancelled',
+            'cancellationReason' => $reason
+        );
         
-        return $this->makeRequest('DELETE', "/reservations/{$reservation_id}", $data);
+        return $this->make_request($endpoint, 'PUT', $data);
     }
     
     /**
-     * Get all amenities
+     * Search properties
      */
-    public function getAmenities() {
-        return $this->makeRequest('GET', '/amenities');
+    public function search_properties($filters = array()) {
+        $endpoint = '/listings';
+        $query_params = array();
+        
+        // Add filters to query parameters
+        if (isset($filters['location'])) {
+            $query_params[] = 'location=' . urlencode($filters['location']);
+        }
+        
+        if (isset($filters['checkin']) && isset($filters['checkout'])) {
+            $query_params[] = 'dateFrom=' . $filters['checkin'];
+            $query_params[] = 'dateTo=' . $filters['checkout'];
+        }
+        
+        if (isset($filters['guests'])) {
+            $query_params[] = 'guestCount=' . $filters['guests'];
+        }
+        
+        if (isset($filters['property_type'])) {
+            $query_params[] = 'propertyType=' . urlencode($filters['property_type']);
+        }
+        
+        if (isset($filters['amenities']) && is_array($filters['amenities'])) {
+            foreach ($filters['amenities'] as $amenity_id) {
+                $query_params[] = 'amenityIds[]=' . $amenity_id;
+            }
+        }
+        
+        if (isset($filters['min_price'])) {
+            $query_params[] = 'minPrice=' . $filters['min_price'];
+        }
+        
+        if (isset($filters['max_price'])) {
+            $query_params[] = 'maxPrice=' . $filters['max_price'];
+        }
+        
+        if (isset($filters['limit'])) {
+            $query_params[] = 'limit=' . $filters['limit'];
+        }
+        
+        if (isset($filters['offset'])) {
+            $query_params[] = 'offset=' . $filters['offset'];
+        }
+        
+        if (!empty($query_params)) {
+            $endpoint .= '?' . implode('&', $query_params);
+        }
+        
+        return $this->make_request($endpoint);
     }
     
     /**
-     * Get property types
+     * Get all available cities
      */
-    public function getPropertyTypes() {
-        return $this->makeRequest('GET', '/listingTypes');
-    }
-    
-    /**
-     * Make HTTP request
-     */
-    private function makeRequest($method, $endpoint, $params = [], $page = 1, $limit = 100) {
-        // Ensure we have a valid access token
-        $token_result = $this->getAccessToken();
-        if (!$token_result['success']) {
-            throw new Exception($token_result['message']);
+    public function get_available_cities() {
+        $cache_key = 'hostaway_available_cities';
+        $cached_cities = get_transient($cache_key);
+        
+        if ($cached_cities) {
+            return $cached_cities;
         }
         
-        $url = $this->base_url . $endpoint;
-        
-        // Add pagination parameters for GET requests
-        if ($method === 'GET') {
-            $params['page'] = $page;
-            $params['limit'] = $limit;
-        }
-        
-        // Prepare headers
-        $headers = [
-            'Authorization' => 'Bearer ' . $this->access_token,
-            'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
-        ];
-        
-        // Prepare request arguments
-        $args = [
-            'method' => $method,
-            'headers' => $headers,
-            'timeout' => $this->timeout,
-        ];
-        
-        // Add parameters based on method
-        if ($method === 'GET' && !empty($params)) {
-            $url .= '?' . http_build_query($params);
-        } elseif (in_array($method, ['POST', 'PUT', 'PATCH']) && !empty($params)) {
-            $args['body'] = json_encode($params);
-        }
-        
-        // Make request
-        $response = wp_remote_request($url, $args);
-        
-        // Check for errors
-        if (is_wp_error($response)) {
-            error_log('Hostaway API Request Error: ' . $response->get_error_message());
-            throw new Exception($response->get_error_message());
-        }
-        
-        $status_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        
-        // Parse response
-        $data = json_decode($body, true);
-        
-        // Handle HTTP errors
-        if ($status_code >= 400) {
-            $error_message = __('API request failed', 'hostaway-wp');
+        try {
+            // Get all properties to extract unique cities
+            $properties = $this->get_properties(1000);
             
-            if (isset($data['message'])) {
-                $error_message = $data['message'];
-            } elseif (isset($data['error'])) {
-                $error_message = $data['error'];
+            if (!isset($properties['result']) || !is_array($properties['result'])) {
+                return array();
             }
             
-            throw new Exception(sprintf(__('HTTP %d: %s', 'hostaway-wp'), $status_code, $error_message));
+            $cities = array();
+            foreach ($properties['result'] as $property) {
+                if (isset($property['city']) && !empty($property['city'])) {
+                    $city = trim($property['city']);
+                    if (!in_array($city, $cities)) {
+                        $cities[] = $city;
+                    }
+                }
+            }
+            
+            // Sort cities alphabetically
+            sort($cities);
+            
+            // Cache for 1 hour
+            set_transient($cache_key, $cities, 3600);
+            
+            return $cities;
+            
+        } catch (\Exception $e) {
+            Database::log_sync('cities_fetch', 'error', $e->getMessage());
+            return array();
+        }
+    }
+    
+    /**
+     * Get location suggestions
+     */
+    public function get_location_suggestions($query) {
+        $endpoint = '/locations?query=' . urlencode($query);
+        return $this->make_request($endpoint);
+    }
+    
+    /**
+     * AJAX handler for testing connection
+     */
+    public function ajax_test_connection() {
+        check_ajax_referer('hostaway_test_connection', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'hostaway-sync'));
         }
         
-        return $data;
-    }
-    
-    /**
-     * Get API credentials
-     */
-    public function getCredentials() {
-        return [
-            'api_key' => $this->api_key,
-            'api_secret' => $this->api_secret,
-        ];
-    }
-    
-    /**
-     * Set API credentials
-     */
-    public function setCredentials($api_key, $api_secret) {
-        $this->api_key = $api_key;
-        $this->api_secret = $api_secret;
-    }
-    
-    /**
-     * Set base URL
-     */
-    public function setBaseUrl($url) {
-        $this->base_url = rtrim($url, '/');
-    }
-    
-    /**
-     * Set timeout
-     */
-    public function setTimeout($timeout) {
-        $this->timeout = $timeout;
+        $result = $this->test_connection();
+        
+        wp_send_json($result);
     }
 }

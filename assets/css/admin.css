@@ -1,277 +1,442 @@
-/* Hostaway WP Admin Styles */
+/* Hostaway Real-Time Sync - Admin Styles */
 
-.hostaway-admin {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+.hostaway-admin-container {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 30px;
+    margin-top: 20px;
 }
 
-.hostaway-admin .form-table th {
+.hostaway-main-content {
+    background: #fff;
+    border-radius: 8px;
+    padding: 25px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.hostaway-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.hostaway-settings-section {
+    margin-bottom: 40px;
+    padding-bottom: 30px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.hostaway-settings-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.hostaway-settings-section h2 {
+    color: #333;
+    margin-bottom: 20px;
+    font-size: 24px;
+    border-bottom: 3px solid #007cba;
+    padding-bottom: 10px;
+}
+
+.form-table th {
     width: 200px;
     padding: 20px 10px 20px 0;
     vertical-align: top;
+    font-weight: 600;
+    color: #333;
 }
 
-.hostaway-admin .form-table td {
-    padding: 15px 10px;
+.form-table td {
+    padding: 20px 0;
 }
 
-.hostaway-admin .form-table input[type="text"],
-.hostaway-admin .form-table input[type="password"],
-.hostaway-admin .form-table input[type="number"],
-.hostaway-admin .form-table select,
-.hostaway-admin .form-table textarea {
+.form-table input[type="text"],
+.form-table input[type="password"],
+.form-table input[type="number"],
+.form-table select {
     width: 100%;
     max-width: 400px;
+    padding: 12px 16px;
+    border: 2px solid #e1e5e9;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.3s ease;
 }
 
-.hostaway-admin .form-table .description {
-    margin-top: 5px;
+.form-table input[type="text"]:focus,
+.form-table input[type="password"]:focus,
+.form-table input[type="number"]:focus,
+.form-table select:focus {
+    outline: none;
+    border-color: #007cba;
+    box-shadow: 0 0 0 3px rgba(0, 124, 186, 0.1);
+}
+
+.form-table input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #007cba;
+}
+
+.form-table .description {
     color: #666;
     font-style: italic;
+    margin-top: 8px;
+    display: block;
 }
 
-/* Test Connection Buttons */
-.hostaway-test-buttons {
-    margin: 20px 0;
+.button {
+    background: #007cba;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
 }
 
-.hostaway-test-buttons .button {
-    margin-right: 10px;
+.button:hover {
+    background: #005a87;
+    transform: translateY(-1px);
 }
 
-.hostaway-test-buttons .button:disabled {
-    opacity: 0.6;
+.button:disabled {
+    background: #ccc;
     cursor: not-allowed;
+    transform: none;
 }
 
-/* Test Results */
-.hostaway-test-result {
-    margin-top: 10px;
-    padding: 10px 15px;
-    border-radius: 4px;
-    font-weight: 600;
+.button.button-primary {
+    background: linear-gradient(135deg, #007cba, #005a87);
+    box-shadow: 0 4px 15px rgba(0, 124, 186, 0.3);
 }
 
-.hostaway-test-result.success {
+.button.button-primary:hover {
+    background: linear-gradient(135deg, #005a87, #004066);
+    box-shadow: 0 6px 20px rgba(0, 124, 186, 0.4);
+}
+
+.button.button-secondary {
+    background: #f0f0f0;
+    color: #333;
+    border: 2px solid #e1e5e9;
+}
+
+.button.button-secondary:hover {
+    background: #e0e0e0;
+    border-color: #007cba;
+    color: #007cba;
+}
+
+/* Connection Test Results */
+#connection-results {
+    margin-top: 15px;
+    padding: 15px;
+    border-radius: 6px;
+    font-weight: 500;
+}
+
+#connection-results.success {
     background: #d4edda;
     color: #155724;
     border: 1px solid #c3e6cb;
 }
 
-.hostaway-test-result.error {
+#connection-results.error {
     background: #f8d7da;
     color: #721c24;
     border: 1px solid #f5c6cb;
 }
 
-.hostaway-test-result.loading {
+#connection-results.loading {
     background: #d1ecf1;
     color: #0c5460;
     border: 1px solid #bee5eb;
 }
 
-/* Sync Log */
-.hostaway-sync-log {
-    background: white;
-    border: 1px solid #ccd0d4;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.hostaway-sync-log table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.hostaway-sync-log th,
-.hostaway-sync-log td {
-    padding: 12px 15px;
-    text-align: left;
-    border-bottom: 1px solid #eee;
-}
-
-.hostaway-sync-log th {
-    background: #f9f9f9;
-    font-weight: 600;
-}
-
-.hostaway-sync-log tr:hover {
-    background: #f9f9f9;
-}
-
-.hostaway-sync-log .status-success {
-    color: #46b450;
-}
-
-.hostaway-sync-log .status-error {
-    color: #dc3232;
-}
-
-.hostaway-sync-log .status-warning {
-    color: #ffb900;
-}
-
-/* Property Meta Boxes */
-.hostaway-property-meta {
-    background: white;
-    border: 1px solid #ccd0d4;
-    border-radius: 4px;
+/* Stats Widget */
+.hostaway-stats-widget,
+.hostaway-recent-logs-widget {
+    background: #fff;
+    border-radius: 8px;
     padding: 20px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-.hostaway-property-meta .form-table {
+.hostaway-stats-widget h3,
+.hostaway-recent-logs-widget h3 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 18px;
+    border-bottom: 2px solid #007cba;
+    padding-bottom: 8px;
+}
+
+.hostaway-stats-widget ul {
+    list-style: none;
+    padding: 0;
     margin: 0;
 }
 
-.hostaway-property-meta .form-table th {
-    width: 150px;
-    padding: 10px 0;
+.hostaway-stats-widget li {
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
-.hostaway-property-meta .form-table td {
-    padding: 10px 0;
+.hostaway-stats-widget li:last-child {
+    border-bottom: none;
 }
 
-/* Gallery Preview */
-.property-gallery-preview {
+.hostaway-stats-widget strong {
+    color: #007cba;
+    font-weight: 600;
+}
+
+/* Recent Logs */
+#recent-logs ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#recent-logs li {
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+}
+
+#recent-logs li:last-child {
+    border-bottom: none;
+}
+
+#recent-logs li.status-completed {
+    color: #155724;
+}
+
+#recent-logs li.status-error {
+    color: #721c24;
+}
+
+#recent-logs li.status-started {
+    color: #0c5460;
+}
+
+#recent-logs li.status-skipped {
+    color: #856404;
+}
+
+/* Amenities Management */
+#amenities-container {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 15px;
+}
+
+#amenities-list {
+    margin-top: 20px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 10px;
-    margin: 15px 0;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
 }
 
-.gallery-item {
-    position: relative;
-    border: 2px solid #ddd;
-    border-radius: 4px;
-    overflow: hidden;
+.amenity-item {
+    background: #fff;
+    border: 2px solid #e1e5e9;
+    border-radius: 6px;
+    padding: 15px;
+    transition: border-color 0.3s ease;
 }
 
-.gallery-item img {
-    width: 100%;
-    height: 80px;
-    object-fit: cover;
-    display: block;
+.amenity-item:hover {
+    border-color: #007cba;
 }
 
-.gallery-item .remove-gallery-item {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    background: #dc3232;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
+.amenity-item input[type="checkbox"] {
+    margin-right: 10px;
+    accent-color: #007cba;
+}
+
+.amenity-item label {
+    font-weight: 500;
+    color: #333;
     cursor: pointer;
     display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 12px;
+    margin: 0;
 }
 
-.gallery-item .remove-gallery-item:hover {
-    background: #a00;
+/* Properties Table */
+.wp-list-table {
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-/* Sync Status */
-.sync-status {
+.wp-list-table th {
+    background: #007cba;
+    color: #fff;
+    font-weight: 600;
+    padding: 15px 10px;
+    border: none;
+}
+
+.wp-list-table td {
+    padding: 15px 10px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.wp-list-table tr:hover {
+    background: #f8f9fa;
+}
+
+.status-active {
+    color: #155724;
+    font-weight: 600;
+}
+
+.status-inactive {
+    color: #721c24;
+    font-weight: 600;
+}
+
+.status-pending {
+    color: #856404;
+    font-weight: 600;
+}
+
+.status-completed {
+    color: #155724;
+    font-weight: 600;
+}
+
+.status-error {
+    color: #721c24;
+    font-weight: 600;
+}
+
+.status-started {
+    color: #0c5460;
+    font-weight: 600;
+}
+
+.status-skipped {
+    color: #856404;
+    font-weight: 600;
+}
+
+/* Tablenav */
+.tablenav {
+    background: #fff;
     padding: 15px;
-    background: #f9f9f9;
-    border-radius: 4px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-.sync-status p {
-    margin: 0 0 10px 0;
+.tablenav .alignleft {
+    display: flex;
+    align-items: center;
+    gap: 15px;
 }
 
-.sync-status p:last-child {
-    margin-bottom: 0;
+.tablenav input[type="search"] {
+    padding: 8px 12px;
+    border: 2px solid #e1e5e9;
+    border-radius: 6px;
+    font-size: 14px;
+    width: 200px;
 }
 
-.sync-status .status-active {
-    color: #46b450;
+.tablenav select {
+    padding: 8px 12px;
+    border: 2px solid #e1e5e9;
+    border-radius: 6px;
+    font-size: 14px;
 }
 
-.sync-status .status-inactive {
-    color: #dc3232;
+.tablenav .tablenav-pages {
+    margin-left: auto;
 }
 
-.sync-status .status-pending {
-    color: #ffb900;
+.tablenav .tablenav-pages .pagination-links {
+    display: flex;
+    gap: 5px;
+    align-items: center;
 }
 
-.sync-status .status-unknown {
-    color: #666;
+.tablenav .tablenav-pages a,
+.tablenav .tablenav-pages .current {
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border: 2px solid #e1e5e9;
+    border-radius: 6px;
+    color: #333;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.3s ease;
 }
 
-.sync-single-property {
-    margin-top: 10px;
+.tablenav .tablenav-pages a:hover {
+    border-color: #007cba;
+    color: #007cba;
 }
 
-/* Custom Columns */
-.hostaway-custom-columns {
-    font-size: 12px;
+.tablenav .tablenav-pages .current {
+    background: #007cba;
+    color: #fff;
+    border-color: #007cba;
 }
 
-.hostaway-custom-columns .status-active {
-    color: #46b450;
-    font-weight: 600;
-}
-
-.hostaway-custom-columns .status-inactive {
-    color: #dc3232;
-    font-weight: 600;
-}
-
-.hostaway-custom-columns .status-pending {
-    color: #ffb900;
-    font-weight: 600;
-}
-
-.hostaway-custom-columns .status-unknown {
-    color: #666;
-    font-weight: 600;
-}
-
-/* Shortcodes Info */
-.hostaway-shortcodes {
-    background: #f9f9f9;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 20px;
+/* Admin Notices */
+.notice {
+    border-radius: 8px;
+    border-left: 4px solid;
+    padding: 15px 20px;
     margin: 20px 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-.hostaway-shortcodes h3 {
-    margin-top: 0;
+.notice-success {
+    background: #d4edda;
+    border-left-color: #28a745;
+    color: #155724;
 }
 
-.hostaway-shortcodes code {
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 3px;
-    padding: 2px 6px;
-    font-family: 'Courier New', monospace;
+.notice-error {
+    background: #f8d7da;
+    border-left-color: #dc3545;
+    color: #721c24;
 }
 
-.hostaway-shortcodes .shortcode-example {
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 3px;
-    padding: 10px;
-    margin: 10px 0;
-    font-family: 'Courier New', monospace;
+.notice-warning {
+    background: #fff3cd;
+    border-left-color: #ffc107;
+    color: #856404;
+}
+
+.notice-info {
+    background: #d1ecf1;
+    border-left-color: #17a2b8;
+    color: #0c5460;
 }
 
 /* Loading States */
-.hostaway-loading {
+.loading {
     position: relative;
-    opacity: 0.6;
     pointer-events: none;
+    opacity: 0.6;
 }
 
-.hostaway-loading::after {
+.loading:after {
     content: '';
     position: absolute;
     top: 50%;
@@ -279,67 +444,92 @@
     width: 20px;
     height: 20px;
     margin: -10px 0 0 -10px;
-    border: 2px solid #ddd;
-    border-top-color: #0073aa;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007cba;
     border-radius: 50%;
-    animation: hostaway-spin 1s linear infinite;
+    animation: spin 1s linear infinite;
 }
 
-@keyframes hostaway-spin {
-    to { transform: rotate(360deg); }
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
-/* Notices */
-.hostaway-notice {
-    padding: 15px;
-    margin: 15px 0;
-    border-left: 4px solid;
-    border-radius: 3px;
+/* Responsive Design */
+@media (max-width: 1024px) {
+    .hostaway-admin-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .hostaway-sidebar {
+        order: -1;
+    }
 }
 
-.hostaway-notice.success {
-    background: #d4edda;
-    border-left-color: #46b450;
-    color: #155724;
-}
-
-.hostaway-notice.error {
-    background: #f8d7da;
-    border-left-color: #dc3232;
-    color: #721c24;
-}
-
-.hostaway-notice.warning {
-    background: #fff3cd;
-    border-left-color: #ffb900;
-    color: #856404;
-}
-
-.hostaway-notice.info {
-    background: #d1ecf1;
-    border-left-color: #17a2b8;
-    color: #0c5460;
-}
-
-/* Responsive */
 @media (max-width: 768px) {
-    .hostaway-admin .form-table th,
-    .hostaway-admin .form-table td {
+    .hostaway-main-content {
+        padding: 20px;
+    }
+    
+    .form-table th,
+    .form-table td {
         display: block;
         width: 100%;
         padding: 10px 0;
     }
     
-    .hostaway-admin .form-table th {
-        font-weight: 600;
-        margin-bottom: 5px;
+    .form-table th {
+        border-bottom: none;
+        padding-bottom: 5px;
     }
     
-    .property-gallery-preview {
-        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    .form-table input[type="text"],
+    .form-table input[type="password"],
+    .form-table input[type="number"],
+    .form-table select {
+        max-width: 100%;
     }
     
-    .gallery-item img {
-        height: 60px;
+    #amenities-list {
+        grid-template-columns: 1fr;
+    }
+    
+    .tablenav .alignleft {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    
+    .tablenav input[type="search"] {
+        width: 100%;
+    }
+    
+    .tablenav .tablenav-pages {
+        margin-left: 0;
+        margin-top: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .hostaway-main-content {
+        padding: 15px;
+    }
+    
+    .hostaway-settings-section h2 {
+        font-size: 20px;
+    }
+    
+    .wp-list-table {
+        font-size: 14px;
+    }
+    
+    .wp-list-table th,
+    .wp-list-table td {
+        padding: 10px 5px;
+    }
+    
+    .notice {
+        padding: 12px 15px;
+        margin: 15px 0;
     }
 }
