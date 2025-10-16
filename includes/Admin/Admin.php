@@ -23,6 +23,8 @@ class Admin {
         add_action('wp_ajax_hostaway_get_amenities', array($this, 'ajax_get_amenities'));
         add_action('wp_ajax_hostaway_clear_cache', array($this, 'ajax_clear_cache'));
         add_action('wp_ajax_hostaway_test_maps', array($this, 'ajax_test_maps'));
+        add_action('wp_ajax_hostaway_get_recent_logs', array($this, 'ajax_get_recent_logs'));
+        add_action('wp_ajax_hostaway_get_stats', array($this, 'ajax_get_stats'));
     }
     
     /**
@@ -604,13 +606,17 @@ class Admin {
         check_ajax_referer('hostaway_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+            wp_send_json_error(__('Insufficient permissions', 'hostaway-sync'));
         }
         
-        $sync = new Synchronizer();
-        $sync->sync_properties();
-        
-        wp_send_json_success(__('Manual sync completed', 'hostaway-sync'));
+        try {
+            $sync = new Synchronizer();
+            $sync->sync_properties();
+            
+            wp_send_json_success(__('Manual sync completed successfully', 'hostaway-sync'));
+        } catch (\Exception $e) {
+            wp_send_json_error(__('Sync failed: ', 'hostaway-sync') . $e->getMessage());
+        }
     }
     
     /**
@@ -620,13 +626,21 @@ class Admin {
         check_ajax_referer('hostaway_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+            wp_send_json_error(__('Insufficient permissions', 'hostaway-sync'));
         }
         
-        $api_client = new HostawayClient();
-        $amenities = $api_client->get_all_amenities();
-        
-        wp_send_json_success($amenities);
+        try {
+            $api_client = new HostawayClient();
+            $amenities = $api_client->get_all_amenities();
+            
+            if (empty($amenities)) {
+                wp_send_json_error(__('No amenities found. Please ensure you have properties with amenities configured in Hostaway.', 'hostaway-sync'));
+            }
+            
+            wp_send_json_success($amenities);
+        } catch (\Exception $e) {
+            wp_send_json_error(__('Failed to fetch amenities: ', 'hostaway-sync') . $e->getMessage());
+        }
     }
     
     /**
@@ -636,13 +650,17 @@ class Admin {
         check_ajax_referer('hostaway_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Insufficient permissions', 'hostaway-sync'));
+            wp_send_json_error(__('Insufficient permissions', 'hostaway-sync'));
         }
         
-        $sync = new Synchronizer();
-        $sync->clear_cache();
-        
-        wp_send_json_success(__('Cache cleared', 'hostaway-sync'));
+        try {
+            $sync = new Synchronizer();
+            $sync->clear_cache();
+            
+            wp_send_json_success(__('Cache cleared successfully', 'hostaway-sync'));
+        } catch (\Exception $e) {
+            wp_send_json_error(__('Failed to clear cache: ', 'hostaway-sync') . $e->getMessage());
+        }
     }
     
     /**
@@ -676,6 +694,37 @@ class Admin {
         } else {
             wp_send_json_error(__('Google Maps connection failed', 'hostaway-sync'));
         }
+    }
+    
+    /**
+     * AJAX get recent logs
+     */
+    public function ajax_get_recent_logs() {
+        check_ajax_referer('hostaway_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        ob_start();
+        $this->display_recent_logs();
+        $html = ob_get_clean();
+        
+        wp_send_json_success($html);
+    }
+    
+    /**
+     * AJAX get stats
+     */
+    public function ajax_get_stats() {
+        check_ajax_referer('hostaway_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Insufficient permissions', 'hostaway-sync'));
+        }
+        
+        $stats = $this->get_sync_stats();
+        wp_send_json_success($stats);
     }
     
     /**
