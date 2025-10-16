@@ -330,14 +330,16 @@ class Settings {
                         api_key: $('#hostaway_api_key').val()
                     },
                     success: function(response) {
+                        console.log('API Test Response:', response);
                         if (response.success) {
-                            result.html('<span style="color: green;">✓ ' + response.data.message + '</span>');
+                            result.html('<span style="color: green;">✓ ' + response.message + '</span>');
                         } else {
-                            result.html('<span style="color: red;">✗ ' + response.data.message + '</span>');
+                            result.html('<span style="color: red;">✗ ' + response.message + '</span>');
                         }
                     },
-                    error: function() {
-                        result.html('<span style="color: red;"><?php esc_js_e('Connection test failed', 'hostaway-wp'); ?></span>');
+                    error: function(xhr, status, error) {
+                        console.log('API Test Error:', xhr.responseText);
+                        result.html('<span style="color: red;"><?php esc_js_e('Connection test failed: ', 'hostaway-wp'); ?>' + error + '</span>');
                     },
                     complete: function() {
                         button.prop('disabled', false).text('<?php esc_js_e('Test Connection', 'hostaway-wp'); ?>');
@@ -361,14 +363,16 @@ class Settings {
                         nonce: '<?php echo wp_create_nonce('hostaway_admin_nonce'); ?>'
                     },
                     success: function(response) {
+                        console.log('Sync Response:', response);
                         if (response.success) {
-                            result.html('<span style="color: green;">✓ <?php esc_js_e('Sync completed successfully', 'hostaway-wp'); ?></span>');
+                            result.html('<span style="color: green;">✓ ' + response.message + '</span>');
                         } else {
-                            result.html('<span style="color: red;">✗ <?php esc_js_e('Sync failed', 'hostaway-wp'); ?></span>');
+                            result.html('<span style="color: red;">✗ ' + response.message + '</span>');
                         }
                     },
-                    error: function() {
-                        result.html('<span style="color: red;"><?php esc_js_e('Sync request failed', 'hostaway-wp'); ?></span>');
+                    error: function(xhr, status, error) {
+                        console.log('Sync Error:', xhr.responseText);
+                        result.html('<span style="color: red;"><?php esc_js_e('Sync request failed: ', 'hostaway-wp'); ?>' + error + '</span>');
                     },
                     complete: function() {
                         button.prop('disabled', false).text('<?php esc_js_e('Sync Now', 'hostaway-wp'); ?>');

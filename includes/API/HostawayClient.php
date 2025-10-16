@@ -111,6 +111,7 @@ class HostawayClient {
         $response = wp_remote_post($url, $args);
         
         if (is_wp_error($response)) {
+            error_log('Hostaway API Token Request Error: ' . $response->get_error_message());
             return [
                 'success' => false,
                 'message' => $response->get_error_message(),
@@ -187,7 +188,7 @@ class HostawayClient {
             $params['endDate'] = $end_date;
         }
         
-        return $this->makeRequest('GET', "/listings/{$property_id}/calendar/rates", $params);
+        return $this->makeRequest('GET', "/listings/{$property_id}/calendar", $params);
     }
     
     /**
@@ -204,7 +205,7 @@ class HostawayClient {
             $params['endDate'] = $end_date;
         }
         
-        return $this->makeRequest('GET', "/listings/{$property_id}/calendar/availability", $params);
+        return $this->makeRequest('GET', "/listings/{$property_id}/calendar", $params);
     }
     
     /**
@@ -311,6 +312,7 @@ class HostawayClient {
         
         // Check for errors
         if (is_wp_error($response)) {
+            error_log('Hostaway API Request Error: ' . $response->get_error_message());
             throw new Exception($response->get_error_message());
         }
         

@@ -197,10 +197,17 @@ class Plugin {
             wp_die('Unauthorized');
         }
         
+        $account_id = sanitize_text_field($_POST['account_id'] ?? '');
         $api_key = sanitize_text_field($_POST['api_key'] ?? '');
-        $api_secret = sanitize_text_field($_POST['api_secret'] ?? '');
         
-        $client = new API\HostawayClient($api_key, $api_secret);
+        if (empty($account_id) || empty($api_key)) {
+            wp_send_json([
+                'success' => false,
+                'message' => __('Account ID and API Key are required', 'hostaway-wp')
+            ]);
+        }
+        
+        $client = new API\HostawayClient($account_id, $api_key);
         $result = $client->testConnection();
         
         wp_send_json($result);
@@ -216,9 +223,20 @@ class Plugin {
             wp_die('Unauthorized');
         }
         
-        $this->components['sync']->syncAll();
-        
-        wp_send_json(['success' => true]);
+        try {
+            $result = $this->components['sync']->syncAll();
+            
+            wp_send_json([
+                'success' => true,
+                'message' => __('Sync completed successfully', 'hostaway-wp'),
+                'data' => $result
+            ]);
+        } catch (Exception $e) {
+            wp_send_json([
+                'success' => false,
+                'message' => sprintf(__('Sync failed: %s', 'hostaway-wp'), $e->getMessage())
+            ]);
+        }
     }
     
     /**
