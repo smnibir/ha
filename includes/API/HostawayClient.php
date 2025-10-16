@@ -162,25 +162,40 @@ class HostawayClient {
             }
             
             // Test the listings endpoint
-            $response = $this->make_request('/listings');
+            $response = $this->make_request('/listings?limit=1');
             
             // Log the response for debugging
             error_log('Hostaway API Response: ' . wp_json_encode($response));
             
-            if (is_array($response) && (isset($response['data']) || isset($response['result']) || isset($response['status']))) {
-                return array(
-                    'success' => true,
-                    'message' => __('Connection successful', 'hostaway-sync'),
-                    'data' => array(
-                        'token_received' => true,
-                        'response_keys' => array_keys($response),
-                        'sample_data' => array_slice($response, 0, 2)
-                    )
-                );
+            if (is_array($response)) {
+                // Check for various response formats
+                if (isset($response['status']) && $response['status'] === 'success') {
+                    $count = isset($response['count']) ? $response['count'] : 0;
+                    return array(
+                        'success' => true,
+                        'message' => sprintf(__('Connection successful! Found %d properties.', 'hostaway-sync'), $count)
+                    );
+                } elseif (isset($response['result'])) {
+                    $count = is_array($response['result']) ? count($response['result']) : 0;
+                    return array(
+                        'success' => true,
+                        'message' => sprintf(__('Connection successful! Fetched %d properties.', 'hostaway-sync'), $count)
+                    );
+                } elseif (isset($response['data'])) {
+                    return array(
+                        'success' => true,
+                        'message' => __('Connection successful! API is responding.', 'hostaway-sync')
+                    );
+                } else {
+                    return array(
+                        'success' => true,
+                        'message' => __('Connection successful! API returned valid response.', 'hostaway-sync')
+                    );
+                }
             } else {
                 return array(
                     'success' => false,
-                    'message' => __('Invalid API response format: ' . wp_json_encode($response), 'hostaway-sync')
+                    'message' => __('Invalid API response format', 'hostaway-sync')
                 );
             }
         } catch (\Exception $e) {

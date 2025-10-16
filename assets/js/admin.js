@@ -67,11 +67,17 @@
                 if (response.success) {
                     showConnectionResult('success', response.message || hostawayAdmin.strings.connectionSuccess || 'Connection successful!');
                 } else {
-                    showConnectionResult('error', response.message || hostawayAdmin.strings.connectionFailed || 'Connection failed');
+                    showConnectionResult('error', response.message || response.data || hostawayAdmin.strings.connectionFailed || 'Connection failed');
                 }
             },
-            error: function() {
-                showConnectionResult('error', hostawayAdmin.strings.connectionFailed || 'Connection failed');
+            error: function(xhr, status, error) {
+                let errorMsg = hostawayAdmin.strings.connectionFailed || 'Connection failed';
+                if (xhr.responseJSON && xhr.responseJSON.data) {
+                    errorMsg = xhr.responseJSON.data;
+                } else if (error) {
+                    errorMsg += ': ' + error;
+                }
+                showConnectionResult('error', errorMsg);
             },
             complete: function() {
                 $button.prop('disabled', false).text(hostawayAdmin.strings.testHostawayConnection || 'Test Hostaway Connection');
@@ -130,7 +136,7 @@
         const $results = $('#connection-results');
         $results.removeClass('success error loading')
                .addClass(type)
-               .text(message);
+               .html(message);
     }
 
     /**
@@ -152,15 +158,21 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        showNotification(hostawayAdmin.strings.syncComplete || 'Sync completed successfully', 'success');
+                        showNotification(response.data || hostawayAdmin.strings.syncComplete || 'Sync completed successfully', 'success');
                         updateRecentLogs();
                         updateStats();
                     } else {
-                        showNotification(response.data.message || hostawayAdmin.strings.syncFailed || 'Sync failed', 'error');
+                        showNotification(response.data || hostawayAdmin.strings.syncFailed || 'Sync failed', 'error');
                     }
                 },
-                error: function() {
-                    showNotification(hostawayAdmin.strings.syncFailed || 'Sync failed', 'error');
+                error: function(xhr, status, error) {
+                    let errorMsg = hostawayAdmin.strings.syncFailed || 'Sync failed';
+                    if (xhr.responseJSON && xhr.responseJSON.data) {
+                        errorMsg = xhr.responseJSON.data;
+                    } else if (error) {
+                        errorMsg += ': ' + error;
+                    }
+                    showNotification(errorMsg, 'error');
                 },
                 complete: function() {
                     $button.prop('disabled', false).text(hostawayAdmin.strings.syncNow || 'Sync Now');
@@ -191,11 +203,17 @@
                         renderAmenitiesList(response.data);
                         showNotification(hostawayAdmin.strings.amenitiesLoaded || 'Amenities loaded successfully', 'success');
                     } else {
-                        showNotification(response.data.message || hostawayAdmin.strings.amenitiesLoadFailed || 'Failed to load amenities', 'error');
+                        showNotification(response.data || hostawayAdmin.strings.amenitiesLoadFailed || 'Failed to load amenities', 'error');
                     }
                 },
-                error: function() {
-                    showNotification(hostawayAdmin.strings.amenitiesLoadFailed || 'Failed to load amenities', 'error');
+                error: function(xhr, status, error) {
+                    let errorMsg = hostawayAdmin.strings.amenitiesLoadFailed || 'Failed to load amenities';
+                    if (xhr.responseJSON && xhr.responseJSON.data) {
+                        errorMsg = xhr.responseJSON.data;
+                    } else if (error) {
+                        errorMsg += ': ' + error;
+                    }
+                    showNotification(errorMsg, 'error');
                 },
                 complete: function() {
                     $button.prop('disabled', false).text(hostawayAdmin.strings.loadAmenities || 'Load Amenities from Hostaway');
@@ -266,13 +284,19 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        showNotification(hostawayAdmin.strings.cacheCleared || 'Cache cleared successfully', 'success');
+                        showNotification(response.data || hostawayAdmin.strings.cacheCleared || 'Cache cleared successfully', 'success');
                     } else {
-                        showNotification(response.data.message || hostawayAdmin.strings.cacheClearFailed || 'Failed to clear cache', 'error');
+                        showNotification(response.data || hostawayAdmin.strings.cacheClearFailed || 'Failed to clear cache', 'error');
                     }
                 },
-                error: function() {
-                    showNotification(hostawayAdmin.strings.cacheClearFailed || 'Failed to clear cache', 'error');
+                error: function(xhr, status, error) {
+                    let errorMsg = hostawayAdmin.strings.cacheClearFailed || 'Failed to clear cache';
+                    if (xhr.responseJSON && xhr.responseJSON.data) {
+                        errorMsg = xhr.responseJSON.data;
+                    } else if (error) {
+                        errorMsg += ': ' + error;
+                    }
+                    showNotification(errorMsg, 'error');
                 },
                 complete: function() {
                     $button.prop('disabled', false).text(hostawayAdmin.strings.clearCache || 'Clear Cache');
