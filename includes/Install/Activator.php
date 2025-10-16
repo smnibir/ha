@@ -137,24 +137,7 @@ class Activator {
      */
     private static function scheduleCronJobs() {
         // Add custom cron intervals
-        add_filter('cron_schedules', function($schedules) {
-            $schedules['hostaway_10min'] = [
-                'interval' => 10 * MINUTE_IN_SECONDS,
-                'display' => __('Every 10 minutes', 'hostaway-wp'),
-            ];
-            
-            $schedules['hostaway_15min'] = [
-                'interval' => 15 * MINUTE_IN_SECONDS,
-                'display' => __('Every 15 minutes', 'hostaway-wp'),
-            ];
-            
-            $schedules['hostaway_6hourly'] = [
-                'interval' => 6 * HOUR_IN_SECONDS,
-                'display' => __('Every 6 hours', 'hostaway-wp'),
-            ];
-            
-            return $schedules;
-        });
+        add_filter('cron_schedules', 'hostaway_wp_cron_schedules');
         
         // Clear existing schedules first
         wp_clear_scheduled_hook('hostaway_wp_sync_properties');
