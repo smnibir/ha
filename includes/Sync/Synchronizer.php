@@ -40,7 +40,14 @@ class Synchronizer {
             $properties = $this->api_client->get_properties(1000);
             
             if (!isset($properties['result']) || !is_array($properties['result'])) {
-                throw new \Exception('Invalid properties response from API');
+                $error_msg = 'Invalid properties response from API. Response: ' . wp_json_encode($properties);
+                error_log('Hostaway Sync Error: ' . $error_msg);
+                throw new \Exception($error_msg);
+            }
+            
+            if (empty($properties['result'])) {
+                Database::log_sync('properties', 'completed', 'No properties found in Hostaway account');
+                return;
             }
             
             $synced_count = 0;

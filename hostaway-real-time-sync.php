@@ -147,12 +147,8 @@ class HostawayRealTimeSync {
         // Sync hooks
         add_action('hostaway_sync_cron', array($this->sync, 'sync_properties'));
         
-        // Frontend hooks
+        // Frontend hooks (AJAX handlers registered in Frontend class constructor)
         add_action('wp_enqueue_scripts', array($this->frontend, 'enqueue_scripts'));
-        add_action('wp_ajax_hostaway_search_properties', array($this->frontend, 'ajax_search_properties'));
-        add_action('wp_ajax_nopriv_hostaway_search_properties', array($this->frontend, 'ajax_search_properties'));
-        add_action('wp_ajax_hostaway_get_property_details', array($this->frontend, 'ajax_get_property_details'));
-        add_action('wp_ajax_nopriv_hostaway_get_property_details', array($this->frontend, 'ajax_get_property_details'));
         
         // WooCommerce hooks
         add_action('woocommerce_checkout_process', array($this->woocommerce, 'validate_booking'));

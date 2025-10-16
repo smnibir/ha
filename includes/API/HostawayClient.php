@@ -196,8 +196,22 @@ class HostawayClient {
      * Get all properties
      */
     public function get_properties($limit = 100, $offset = 0) {
-        $endpoint = "/listings?limit=$limit&offset=$offset";
-        return $this->make_request($endpoint);
+        try {
+            $endpoint = "/listings?limit=$limit&offset=$offset";
+            $response = $this->make_request($endpoint);
+            
+            // Handle different response structures
+            if (isset($response['result'])) {
+                return array('result' => $response['result']);
+            } elseif (isset($response['data'])) {
+                return array('result' => $response['data']);
+            } else {
+                return $response;
+            }
+        } catch (\Exception $e) {
+            error_log('Hostaway get_properties error: ' . $e->getMessage());
+            throw $e;
+        }
     }
     
     /**
