@@ -32,6 +32,22 @@ class Settings {
                     <tbody>
                         <tr>
                             <th scope="row">
+                                <label for="hostaway_account_id"><?php esc_html_e('Account ID', 'hostaway-wp'); ?></label>
+                            </th>
+                            <td>
+                                <input type="text" 
+                                       id="hostaway_account_id" 
+                                       name="hostaway_account_id" 
+                                       value="<?php echo esc_attr($settings['account_id']); ?>" 
+                                       class="regular-text" />
+                                <p class="description">
+                                    <?php esc_html_e('Your Hostaway Account ID (Client ID)', 'hostaway-wp'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                        
+                        <tr>
+                            <th scope="row">
                                 <label for="hostaway_api_key"><?php esc_html_e('API Key', 'hostaway-wp'); ?></label>
                             </th>
                             <td>
@@ -41,23 +57,7 @@ class Settings {
                                        value="<?php echo esc_attr($settings['api_key']); ?>" 
                                        class="regular-text" />
                                 <p class="description">
-                                    <?php esc_html_e('Your Hostaway API key', 'hostaway-wp'); ?>
-                                </p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th scope="row">
-                                <label for="hostaway_api_secret"><?php esc_html_e('API Secret', 'hostaway-wp'); ?></label>
-                            </th>
-                            <td>
-                                <input type="password" 
-                                       id="hostaway_api_secret" 
-                                       name="hostaway_api_secret" 
-                                       value="<?php echo esc_attr($settings['api_secret']); ?>" 
-                                       class="regular-text" />
-                                <p class="description">
-                                    <?php esc_html_e('Your Hostaway API secret', 'hostaway-wp'); ?>
+                                    <?php esc_html_e('Your Hostaway API Key (Client Secret)', 'hostaway-wp'); ?>
                                 </p>
                             </td>
                         </tr>
@@ -326,8 +326,8 @@ class Settings {
                     data: {
                         action: 'hostaway_test_api',
                         nonce: '<?php echo wp_create_nonce('hostaway_admin_nonce'); ?>',
-                        api_key: $('#hostaway_api_key').val(),
-                        api_secret: $('#hostaway_api_secret').val()
+                        account_id: $('#hostaway_account_id').val(),
+                        api_key: $('#hostaway_api_key').val()
                     },
                     success: function(response) {
                         if (response.success) {
@@ -385,8 +385,8 @@ class Settings {
      */
     private function getSettings() {
         return [
+            'account_id' => get_option('hostaway_wp_account_id', ''),
             'api_key' => get_option('hostaway_wp_api_key', ''),
-            'api_secret' => get_option('hostaway_wp_api_secret', ''),
             'google_maps_api_key' => get_option('hostaway_wp_google_maps_api_key', ''),
             'currency' => get_option('hostaway_wp_currency', 'USD'),
             'locale' => get_option('hostaway_wp_locale', 'en_US'),
@@ -404,8 +404,8 @@ class Settings {
      */
     private function saveSettings() {
         $settings = [
+            'hostaway_wp_account_id' => sanitize_text_field($_POST['hostaway_account_id'] ?? ''),
             'hostaway_wp_api_key' => sanitize_text_field($_POST['hostaway_api_key'] ?? ''),
-            'hostaway_wp_api_secret' => sanitize_text_field($_POST['hostaway_api_secret'] ?? ''),
             'hostaway_wp_google_maps_api_key' => sanitize_text_field($_POST['google_maps_api_key'] ?? ''),
             'hostaway_wp_currency' => sanitize_text_field($_POST['currency'] ?? 'USD'),
             'hostaway_wp_locale' => sanitize_text_field($_POST['locale'] ?? 'en_US'),
@@ -481,12 +481,12 @@ class Settings {
      * Render admin notices
      */
     private function renderNotices() {
+        $account_id = get_option('hostaway_wp_account_id');
         $api_key = get_option('hostaway_wp_api_key');
-        $api_secret = get_option('hostaway_wp_api_secret');
         
-        if (!$api_key || !$api_secret) {
+        if (!$account_id || !$api_key) {
             echo '<div class="notice notice-warning">';
-            echo '<p>' . esc_html__('Please configure your Hostaway API credentials to enable synchronization.', 'hostaway-wp') . '</p>';
+            echo '<p>' . esc_html__('Please configure your Hostaway Account ID and API Key to enable synchronization.', 'hostaway-wp') . '</p>';
             echo '</div>';
         }
         

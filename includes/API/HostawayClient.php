@@ -15,8 +15,10 @@ class HostawayClient {
     /**
      * API credentials
      */
+    private $account_id;
     private $api_key;
-    private $api_secret;
+    private $access_token;
+    private $token_expires_at;
     
     /**
      * Request timeout
@@ -26,9 +28,13 @@ class HostawayClient {
     /**
      * Constructor
      */
-    public function __construct($api_key = null, $api_secret = null) {
+    public function __construct($account_id = null, $api_key = null) {
+        $this->account_id = $account_id ?: get_option('hostaway_wp_account_id');
         $this->api_key = $api_key ?: get_option('hostaway_wp_api_key');
-        $this->api_secret = $api_secret ?: get_option('hostaway_wp_api_secret');
+        
+        // Load cached access token
+        $this->access_token = get_transient('hostaway_wp_access_token');
+        $this->token_expires_at = get_transient('hostaway_wp_token_expires_at');
     }
     
     /**
@@ -36,7 +42,18 @@ class HostawayClient {
      */
     public function testConnection() {
         try {
-            $response = $this->makeRequest('GET', '/listings');
+            // Get access token first
+            $token_result = $this->getAccessToken();
+            
+            if (!$token_result['success']) {
+                return [
+                    'success' => false,
+                    'message' => $token_result['message'],
+                ];
+            }
+            
+            // Test with a simple API call
+            $response = $this->makeRequest('GET', '/listings', [], 1, 1);
             
             if ($response && isset($response['status']) && $response['status'] === 'success') {
                 return [
@@ -55,6 +72,79 @@ class HostawayClient {
                 'message' => sprintf(__('API connection error: %s', 'hostaway-wp'), $e->getMessage()),
             ];
         }
+    }
+    
+    /**
+     * Get access token using OAuth 2.0 Client Credentials Grant
+     */
+    private function getAccessToken() {
+        // Check if we have a valid cached token
+        if ($this->access_token && $this->token_expires_at && time() < $this->token_expires_at) {
+            return ['success' => true, 'token' => $this->access_token];
+        }
+        
+        if (!$this->account_id || !$this->api_key) {
+            return [
+                'success' => false,
+                'message' => __('Account ID and API Key are required', 'hostaway-wp'),
+            ];
+        }
+        
+        $url = 'https://api.hostaway.com/v1/accessTokens';
+        
+        $data = [
+            'grant_type' => 'client_credentials',
+            'client_id' => $this->account_id,
+            'client_secret' => $this->api_key,
+            'scope' => 'general',
+        ];
+        
+        $args = [
+            'method' => 'POST',
+            'headers' => [
+                'Content-Type' => 'application/x-www-form-urlencoded',
+            ],
+            'body' => http_build_query($data),
+            'timeout' => $this->timeout,
+        ];
+        
+        $response = wp_remote_post($url, $args);
+        
+        if (is_wp_error($response)) {
+            return [
+                'success' => false,
+                'message' => $response->get_error_message(),
+            ];
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        if ($status_code !== 200) {
+            return [
+                'success' => false,
+                'message' => sprintf(__('Failed to get access token. HTTP %d: %s', 'hostaway-wp'), $status_code, $body),
+            ];
+        }
+        
+        $data = json_decode($body, true);
+        
+        if (!isset($data['access_token'])) {
+            return [
+                'success' => false,
+                'message' => __('Invalid response from Hostaway API', 'hostaway-wp'),
+            ];
+        }
+        
+        // Cache the token
+        $this->access_token = $data['access_token'];
+        $expires_in = isset($data['expires_in']) ? intval($data['expires_in']) : 3600;
+        $this->token_expires_at = time() + $expires_in - 300; // 5 minutes buffer
+        
+        set_transient('hostaway_wp_access_token', $this->access_token, $expires_in - 300);
+        set_transient('hostaway_wp_token_expires_at', $this->token_expires_at, $expires_in - 300);
+        
+        return ['success' => true, 'token' => $this->access_token];
     }
     
     /**
@@ -180,16 +270,24 @@ class HostawayClient {
     /**
      * Make HTTP request
      */
-    private function makeRequest($method, $endpoint, $params = []) {
-        if (!$this->api_key || !$this->api_secret) {
-            throw new Exception(__('API credentials not configured', 'hostaway-wp'));
+    private function makeRequest($method, $endpoint, $params = [], $page = 1, $limit = 100) {
+        // Ensure we have a valid access token
+        $token_result = $this->getAccessToken();
+        if (!$token_result['success']) {
+            throw new Exception($token_result['message']);
         }
         
         $url = $this->base_url . $endpoint;
         
+        // Add pagination parameters for GET requests
+        if ($method === 'GET') {
+            $params['page'] = $page;
+            $params['limit'] = $limit;
+        }
+        
         // Prepare headers
         $headers = [
-            'Authorization' => 'Bearer ' . $this->api_key,
+            'Authorization' => 'Bearer ' . $this->access_token,
             'Content-Type' => 'application/json',
             'Accept' => 'application/json',
         ];

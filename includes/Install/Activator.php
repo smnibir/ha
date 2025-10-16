@@ -216,8 +216,8 @@ class Activator {
      */
     private static function setDefaultOptions() {
         $defaults = [
+            'hostaway_wp_account_id' => '',
             'hostaway_wp_api_key' => '',
-            'hostaway_wp_api_secret' => '',
             'hostaway_wp_google_maps_api_key' => '',
             'hostaway_wp_currency' => 'USD',
             'hostaway_wp_locale' => 'en_US',
