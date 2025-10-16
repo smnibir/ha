@@ -1,0 +1,22 @@
+{
+    "name": "hostaway/wp-rentals-plugin",
+    "description": "WordPress plugin for Hostaway property rentals with WooCommerce integration",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Hostaway Team"
+        }
+    ],
+    "require": {
+        "php": ">=7.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "HostawayWP\\": "includes/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
