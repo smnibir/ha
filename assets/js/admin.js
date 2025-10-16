@@ -152,11 +152,13 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        showNotification(hostawayAdmin.strings.syncComplete || 'Sync completed successfully', 'success');
+                        var message = (response.data && response.data.message) ? response.data.message : (hostawayAdmin.strings.syncComplete || 'Sync completed successfully');
+                        showNotification(message, 'success');
                         updateRecentLogs();
                         updateStats();
                     } else {
-                        showNotification(response.data.message || hostawayAdmin.strings.syncFailed || 'Sync failed', 'error');
+                        var errorMessage = (response.data && response.data.message) ? response.data.message : (hostawayAdmin.strings.syncFailed || 'Sync failed');
+                        showNotification(errorMessage, 'error');
                     }
                 },
                 error: function() {
@@ -266,9 +268,11 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        showNotification(hostawayAdmin.strings.cacheCleared || 'Cache cleared successfully', 'success');
+                        var message = (response.data && response.data.message) ? response.data.message : (hostawayAdmin.strings.cacheCleared || 'Cache cleared successfully');
+                        showNotification(message, 'success');
                     } else {
-                        showNotification(response.data.message || hostawayAdmin.strings.cacheClearFailed || 'Failed to clear cache', 'error');
+                        var errorMessage = (response.data && response.data.message) ? response.data.message : (hostawayAdmin.strings.cacheClearFailed || 'Failed to clear cache');
+                        showNotification(errorMessage, 'error');
                     }
                 },
                 error: function() {
@@ -344,37 +348,24 @@
      * Validate form before submission
      */
     function validateForm() {
-        let isValid = true;
+        var isValid = true;
         
         // Clear previous validation messages
         $('.validation-error').remove();
         $('.form-field').removeClass('error');
         
-        // Validate required fields
-        const requiredFields = [
-            { id: 'hostaway_account_id', name: 'Hostaway Account ID' },
-            { id: 'hostaway_api_key', name: 'Hostaway API Key' }
-        ];
-        
-        requiredFields.forEach(field => {
-            const $field = $(`#${field.id}`);
-            if (!$field.val().trim()) {
-                showFieldError($field, `${field.name} is required`);
-                isValid = false;
-            }
-        });
-        
-        // Validate numeric fields
-        const numericFields = [
+        // Validate required fields - but allow saving even if empty for initial setup
+        // Just validate numeric fields
+        var numericFields = [
             { id: 'properties_per_page', min: 1, max: 100 },
             { id: 'cache_duration', min: 1, max: 60 }
         ];
         
-        numericFields.forEach(field => {
-            const $field = $(`#${field.id}`);
-            const value = parseInt($field.val());
-            if (isNaN(value) || value < field.min || value > field.max) {
-                showFieldError($field, `Value must be between ${field.min} and ${field.max}`);
+        numericFields.forEach(function(field) {
+            var $field = $('#' + field.id);
+            var value = parseInt($field.val());
+            if (value && (isNaN(value) || value < field.min || value > field.max)) {
+                showFieldError($field, 'Value must be between ' + field.min + ' and ' + field.max);
                 isValid = false;
             }
         });
